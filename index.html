@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Estación Meteorológica - Tiempo Real</title>
+    <style>
+        :root {
+            --bg: #0f172a;
+            --card-bg: #1e293b;
+            --text-main: #f8fafc;
+            --text-sub: #94a3b8;
+            --accent: #38bdf8;
+            --success: #22c55e;
+            --danger: #ef4444;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 2rem 1rem;
+        }
+
+        header {
+            width: 100%;
+            max-width: 800px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid #334155;
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.875rem;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            background-color: #334155;
+            color: var(--text-sub);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: var(--danger);
+        }
+
+        .status-dot.connected {
+            background-color: var(--success);
+            box-shadow: 0 0 8px var(--success);
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 1.25rem;
+            width: 100%;
+            max-width: 800px;
+        }
+
+        .card {
+            background-color: var(--card-bg);
+            padding: 1.5rem;
+            border-radius: 12px;
+            border: 1px solid #334155;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .card-title {
+            font-size: 0.875rem;
+            color: var(--text-sub);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .card-value {
+            font-size: 2.25rem;
+            font-weight: 700;
+            color: var(--accent);
+        }
+
+        .unit {
+            font-size: 1.25rem;
+            color: var(--text-sub);
+            font-weight: 400;
+        }
+
+        footer {
+            margin-top: auto;
+            padding-top: 2rem;
+            font-size: 0.75rem;
+            color: var(--text-sub);
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Estación Meteorológica</h1>
+        <div class="status-badge">
+            <span id="dot" class="status-dot"></span>
+            <span id="status-text">Desconectado</span>
+        </div>
+    </header>
+
+    <div class="grid">
+        <div class="card">
+            <span class="card-title">Temp. DHT22</span>
+            <div class="card-value"><span id="t_dht">--</span> <span class="unit">°C</span></div>
+        </div>
+
+        <div class="card">
+            <span class="card-title">Humedad</span>
+            <div class="card-value"><span id="humedad">--</span> <span class="unit">%</span></div>
+        </div>
+
+        <div class="card">
+            <span class="card-title">Temp. BMP</span>
+            <div class="card-value"><span id="t_bmp">--</span> <span class="unit">°C</span></div>
+        </div>
+
+        <div class="card">
+            <span class="card-title">Presión Atmo.</span>
+            <div class="card-value"><span id="presion">--</span> <span class="unit">hPa</span></div>
+        </div>
+
+        <div class="card">
+            <span class="card-title">Señal Wi-Fi (ESP32)</span>
+            <div class="card-value"><span id="rssi">--</span> <span class="unit">dBm</span></div>
+        </div>
+        <div class="card">
+            <span class="card-title">Altitud (m)</span>
+            <div class="card-value"><span id="altitud">--</span> <span class="unit">m</span></div>
+        </div>
+    </div>
+
+    <footer>
+        Última actualización: <span id="last-update">Sin datos</span>
+    </footer>
+
+    <script>
+        const WS_URL = 'ws://localhost:8000/ws/clima';
+        let ws;
+
+        const dot = document.getElementById('dot');
+        const statusText = document.getElementById('status-text');
+        const lastUpdate = document.getElementById('last-update');
+
+        function connect() {
+            ws = new WebSocket(WS_URL);
+
+            ws.onopen = () => {
+                dot.classList.add('connected');
+                statusText.innerText = 'En vivo';
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    
+                    // Actualización de valores en pantalla
+                    if (data.t_dht !== undefined) document.getElementById('t_dht').innerText = data.t_dht;
+                    if (data.humedad !== undefined) document.getElementById('humedad').innerText = data.humedad;
+                    if (data.t_bmp !== undefined) document.getElementById('t_bmp').innerText = data.t_bmp;
+                    if (data.presion !== undefined) document.getElementById('presion').innerText = data.presion;
+                    if (data.rssi !== undefined) document.getElementById('rssi').innerText = data.rssi;
+                    if (data.altitud !== undefined) document.getElementById('altitud').innerText = data.altitud;
+
+                    lastUpdate.innerText = new Date().toLocaleTimeString();
+                } catch (e) {
+                    console.error("Error al procesar el JSON:", e);
+                }
+            };
+
+            ws.onclose = () => {
+                dot.classList.remove('connected');
+                statusText.innerText = 'Reconectando...';
+                // Reintentar conexión automáticamente en 3 segundos
+                setTimeout(connect, 3000);
+            };
+
+            ws.onerror = (err) => {
+                console.error("Error en WebSocket:", err);
+                ws.close();
+            };
+        }
+
+        // Iniciar conexión al cargar la página
+        connect();
+    </script>
+</body>
+</html>
