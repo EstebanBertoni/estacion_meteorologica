@@ -15,7 +15,7 @@ from database import init_db, insertar_medicion, obtener_historial
 # Si Mosquitto corre en la misma PC que FastAPI, usamos loopback
 BROKER_IP = "127.0.0.1"
 PORT = 1883
-TOPIC = "estacion/meteo"
+TOPIC = "estacion/telemetria"
 
 latest_data = {
     "t_dht": 0.0,
