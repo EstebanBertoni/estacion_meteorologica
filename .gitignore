@@ -1,0 +1,23 @@
+# ============================================================
+# .gitignore — Estación Meteorológica IoT
+# ============================================================
+
+# --- Python: artefactos generados, nunca en el repo ---
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# --- Bases de datos: la DB vive en el disco, no en Git ---
+*.db
+*.sqlite3
+
+# --- Credenciales (firmware) ---
+credentials.h
+
+# --- Editores/IDE ---
+.vscode/
+
+# --- Sistema operativo ---
+Thumbs.db
+.DS_Store
