@@ -15,6 +15,9 @@ venv/
 # --- Credenciales (firmware) ---
 credentials.h
 
+# --- Datasets: viven en el repo estacion_meteorologica_datos ---
+*.csv
+
 # --- Editores/IDE ---
 .vscode/
 
