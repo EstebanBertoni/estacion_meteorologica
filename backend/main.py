@@ -15,9 +15,11 @@ from fastapi.staticfiles import StaticFiles
 from funciones.database import (
     init_db,
     insertar_medicion,
+    insertar_referencia,
     obtener_historial,
+    obtener_ultima_referencia,
 )
-from funciones.metar import obtener_metar
+from funciones.openmeteo import obtener_openmeteo
 
 
 # ============================================================
@@ -33,6 +35,17 @@ ALTURA_M = 90.0
 
 # Tiempo de espera para reconectar MQTT
 INTERVALO_RECONEXION_MQTT = 5
+
+# Frecuencia de consulta de la referencia regional (Open-Meteo).
+# El modelo actualiza su estado cada ~15 min; consultar más seguido
+# no aporta datos nuevos y el índice único deduplica igual.
+INTERVALO_REFERENCIA_S = 900
+
+# Coordenadas de la estación (Rafaela, Santa Fe, Argentina).
+# Son la ubicación del microclima: la referencia del modelo se
+# interpola a este punto.
+LATITUD_ESTACION = -31.2262
+LONGITUD_ESTACION = -61.4903
 
 
 # ============================================================
@@ -744,68 +757,47 @@ async def process_mqtt_queue():
 
 
 # ============================================================
-# METAR
+# REFERENCIA REGIONAL (OPEN-METEO)
 # ============================================================
 
-def obtener_datos_metar():
+async def tarea_referencia():
     """
-    Obtiene datos METAR de Rafaela.
+    Consulta periódicamente Open-Meteo y almacena la referencia
+    regional en su tabla propia.
 
-    Esta función queda separada de la inicialización
-    de FastAPI para evitar que una consulta externa
-    bloquee el arranque del servidor.
+    - Es una TAREA, no parte de la ingesta: los valores de
+      Open-Meteo son SALIDA DE MODELO NUMÉRICO, no mediciones del
+      microclima. Conviven con la estación, no la reemplazan.
+    - Si falla la consulta (sin internet, API caída), no es fatal:
+      se reintenta en el próximo ciclo.
+    - insertar_referencia deduplica por fecha_observacion.
     """
 
-    try:
+    await asyncio.sleep(5)   # no competir con el arranque
 
-        datos = obtener_metar("SAFS")
+    while True:
 
-        if not datos:
-            print(
-                "[METAR] No se encontraron datos."
-            )
-            return None
+        try:
 
-        print(
-            "\n=== DATOS METAR RAFAELA ==="
-        )
-
-        print(
-            f"Estación: "
-            f"{datos.get('nombre', 'N/D')}"
-        )
-
-        print(
-            f"ICAO: "
-            f"{datos.get('icao', 'N/D')}"
-        )
-
-        print(
-            f"Dirección del viento: "
-            f"{datos.get('viento_dir', 'N/D')}°"
-        )
-
-        print(
-            f"Velocidad del viento: "
-            f"{datos.get('viento_kmh', 'N/D')} km/h"
-        )
-
-        rafaga = datos.get("rafagas_kmh")
-
-        if rafaga:
-            print(
-                f"Ráfagas: {rafaga} km/h"
+            datos = obtener_openmeteo(
+                LATITUD_ESTACION,
+                LONGITUD_ESTACION,
             )
 
-        return datos
+            if datos:
+                insertado = insertar_referencia(datos)
+                if insertado:
+                    print(
+                        f"[REFERENCIA] Nueva observación del modelo "
+                        f"({datos.get('fecha_observacion', 's/hora')})"
+                    )
+            else:
+                print("[REFERENCIA] Sin datos en la respuesta")
 
-    except Exception as error:
+        except Exception as error:
+            print(f"[REFERENCIA ERROR] {error}")
 
-        print(
-            f"[METAR ERROR] {error}"
-        )
-
-        return None
+        await asyncio.sleep(INTERVALO_REFERENCIA_S)
 
 
 # ============================================================
@@ -844,6 +836,10 @@ async def lifespan(app: FastAPI):
 
     asyncio.create_task(
         process_mqtt_queue()
+    )
+
+    asyncio.create_task(
+        tarea_referencia()
     )
 
     print(
@@ -922,6 +918,21 @@ async def get_datos_actuales():
     """
 
     return latest_data
+
+
+@app.get("/api/v1/referencia")
+async def get_referencia():
+    """
+    Devuelve la última referencia regional almacenada
+    (Open-Meteo: salida de modelo, no medición local).
+    """
+
+    datos = obtener_ultima_referencia()
+
+    if datos is None:
+        return {"estado": "SIN_DATOS"}
+
+    return datos
 
 
 # ============================================================
