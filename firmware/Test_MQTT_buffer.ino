@@ -19,7 +19,9 @@
 // ============================================================
 
 // Configuración de red y MQTT
-const char* MQTT_SERVER = "192.168.0.21";   // PC/broker (reserva DHCP)
+// La IP del broker es configuración de entorno: vive en credentials.h
+// (MQTT_SERVER_ADDR). Las migraciones de red no tocan el sketch.
+const char* MQTT_SERVER = MQTT_SERVER_ADDR;
 const int   MQTT_PORT   = 1883;
 const char* MQTT_TOPIC  = "estacion/telemetria";
 
