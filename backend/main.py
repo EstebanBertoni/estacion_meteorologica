@@ -377,11 +377,17 @@ def construir_datos(
 
         # Prioridad del timestamp: hora de adquisición del ESP32.
         # Si no llegó (o era inválida), se usa la hora de recepción.
+        # "timestamp": para el frontend (puede ser epoch de respaldo).
+        # "ts_adquisicion": para la DB — DEBE conservar el ISO UTC
+        #   del ESP32 tal cual; sin esta clave, insertar_medicion
+        #   guarda NULL y se pierde la hora real de adquisición.
         "timestamp": (
             ts_adquisicion
             if ts_adquisicion is not None
             else int(time.time())
         ),
+
+        "ts_adquisicion": ts_adquisicion,
     }
 
     # --------------------------------------------------------
