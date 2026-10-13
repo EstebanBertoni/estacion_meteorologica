@@ -259,11 +259,13 @@ void loop() {
         String clientId = "ESP32_Estacion_";
         clientId += String((uint32_t)ESP.getEfuseMac(), HEX);
 
-        if (mqttClient.connect(clientId.c_str())) {
+        // Autenticación: el broker rechaza conexiones anónimas.
+        if (mqttClient.connect(clientId.c_str(), MQTT_USER, MQTT_PASS)) {
             Serial.println("[MQTT] Conectado");
         } else {
             Serial.print("[MQTT] Fallo, rc=");
             Serial.println(mqttClient.state());
+            // rc=4/5 = credenciales rechazadas; rc=-2 = no alcanza al broker
         }
     }
 

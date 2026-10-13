@@ -12,8 +12,9 @@ venv/
 *.db
 *.sqlite3
 
-# --- Credenciales (firmware) ---
+# --- Credenciales (firmware y backend) ---
 credentials.h
+credentials.py
 
 # --- Datasets: viven en el repo estacion_meteorologica_datos ---
 *.csv

@@ -21,6 +21,17 @@ from funciones.database import (
 )
 from funciones.openmeteo import obtener_openmeteo
 
+# Credenciales MQTT: viven en credentials.py (gitignoreado).
+# Si el archivo no existe, degrada a sin credenciales — pero el
+# broker con allow_anonymous false rechazara la conexion, y el
+# log de MQTT lo hara visible inmediatamente.
+try:
+    from credentials import MQTT_USER, MQTT_PASS
+except ModuleNotFoundError:
+    MQTT_USER = None
+    MQTT_PASS = None
+    print("[MQTT] AVISO: backend/credentials.py no existe - conectando sin credenciales")
+
 
 # ============================================================
 # CONFIGURACIÓN
@@ -675,6 +686,9 @@ def start_mqtt_loop():
 
     client.on_message = on_message
 
+    if MQTT_USER and MQTT_PASS:
+        client.username_pw_set(MQTT_USER, MQTT_PASS)
+
     def on_connect(client, userdata, flags, reason_code, properties=None):
         # La suscripción va en el callback de conexión: así se
         # (re)inscribe automáticamente en cada reconexión, en lugar
@@ -682,6 +696,8 @@ def start_mqtt_loop():
         if reason_code == 0:
             print(f"[MQTT] Suscripto al tópico: '{MQTT_TOPIC}'")
             client.subscribe(MQTT_TOPIC)
+        elif reason_code in (4, 5) or str(reason_code) in ("Not authorized", "Bad user name or password"):
+            print(f"[MQTT] AUTENTICACIÓN RECHAZADA ({reason_code}): revisar MQTT_USER/MQTT_PASS")
         else:
             print(f"[MQTT] Error de conexión: {reason_code}")
 
