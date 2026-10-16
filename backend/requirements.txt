@@ -1,0 +1,8 @@
+# Dependencias directas del backend — Estación Meteorológica IoT
+# Instalación: pip install -r requirements.txt
+# (probado con Python 3.12.4 en Windows)
+
+fastapi==0.141.1
+uvicorn==0.52.4
+paho-mqtt==2.1.0
+requests==2.32.4
