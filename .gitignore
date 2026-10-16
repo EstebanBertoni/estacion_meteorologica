@@ -12,6 +12,9 @@ venv/
 *.db
 *.sqlite3
 
+# --- Logs del servicio (rotan en disco, nunca en Git) ---
+logs/
+
 # --- Credenciales (firmware y backend) ---
 credentials.h
 credentials.py
