@@ -21,6 +21,8 @@ from funciones.database import (
 )
 from funciones.openmeteo import obtener_openmeteo
 
+from funciones.alerta import activar_sonido, evaluar_alertas
+
 # Credenciales MQTT: viven en credentials.py (gitignoreado).
 # Si el archivo no existe, degrada a sin credenciales — pero el
 # broker con allow_anonymous false rechazara la conexion, y el
@@ -84,6 +86,9 @@ latest_data = {
     "densidad_aire": None,
 
     "timestamp": None,
+
+    # Mensajes de alerta activos (se envían por WebSocket al dashboard).
+    "alertas": [],
 }
 
 
@@ -621,6 +626,18 @@ def on_message(client, userdata, msg):
             ).isoformat(timespec="seconds")
 
         # ----------------------------------------------------
+        # Alertas
+        # ----------------------------------------------------
+        # Por ahora solo hay fuente confiable para temperatura.
+        # Viento y lluvia se pasan como None hasta integrar SIGA /
+        # sensores dedicados: None significa "sin dato", no 0.
+        mensajes_alerta = evaluar_alertas(
+            temperatura=t_dht,
+            viento=None,
+            lluvia=None,
+        )
+
+        # ----------------------------------------------------
         # Construcción de datos derivados
         # ----------------------------------------------------
 
@@ -632,6 +649,20 @@ def on_message(client, userdata, msg):
             rssi=rssi,
             ts_adquisicion=ts_adquisicion,
         )
+
+        # El campo viaja en el WebSocket; no se persiste (insertar_medicion
+        # solo lee las columnas conocidas).
+        nuevos_datos["alertas"] = mensajes_alerta
+
+        if mensajes_alerta:
+            print("[ALERTA] " + " | ".join(mensajes_alerta))
+
+            # No bloquear el hilo MQTT mientras suena la alarma.
+            threading.Thread(
+                target=activar_sonido,
+                daemon=True,
+                name="Alerta-Sonido",
+            ).start()
 
         # ----------------------------------------------------
         # Actualizar estado global

@@ -33,24 +33,53 @@ const CHECK_ESTADO_MS = 5000;
 // ------------------------------------------------------------
 
 const TARJETAS = [
-    { clave: "t_dht",              titulo: "Temperatura DHT22",  unidad: " °C",   decimales: 1, color: "var(--up)",     grupo: "Temperatura", ayuda: "Temperatura del sensor DHT22" },
-    { clave: "t_bmp",              titulo: "Temperatura BMP180", unidad: " °C",   decimales: 1, color: "var(--up)",     grupo: "Temperatura", ayuda: "Temperatura del barómetro" },
-    { clave: "sensacion_termica",  titulo: "Sensación térmica",  unidad: " °C",   decimales: 1, color: "var(--up)",     grupo: "Temperatura", ayuda: "Índice de calor sobre t_dht y humedad" },
-    { clave: "bulbo_humedo",       titulo: "Bulbo húmedo",       unidad: " °C",   decimales: 1, color: "var(--up)",     grupo: "Temperatura", ayuda: "Aproximación de Stull (2011)" },
-    { clave: "punto_rocio",        titulo: "Punto de rocío",     unidad: " °C",   decimales: 1, color: "var(--up)",     grupo: "Temperatura", ayuda: "Magnus: temperatura de saturación" },
+    { clave: "t_dht",              titulo: "Temperatura DHT22",         unidad: " °C",   decimales: 1, color: "var(--brand-7)",     grupo: "Temperatura", ayuda: "Temperatura del sensor DHT22" },
+    { clave: "t_bmp",              titulo: "Temperatura BMP180",        unidad: " °C",   decimales: 1, color: "var(--brand-7)",     grupo: "Temperatura", ayuda: "Temperatura del barómetro" },
+    { clave: "sensacion_termica",  titulo: "Sensación térmica",         unidad: " °C",   decimales: 1, color: "var(--brand-7)",     grupo: "Temperatura", ayuda: "Índice de calor sobre t_dht y humedad" },
+    { clave: "bulbo_humedo",       titulo: "Bulbo húmedo",              unidad: " °C",   decimales: 1, color: "var(--brand-7)",     grupo: "Temperatura", ayuda: "Aproximación de Stull (2011)" },
+    { clave: "punto_rocio",        titulo: "Punto de rocío",            unidad: " °C",   decimales: 1, color: "var(--brand-7)",     grupo: "Temperatura", ayuda: "Magnus: temperatura de saturación" },
+    { clave: "temp_min",           titulo: "Temperatura Minima",        unidad: "°C",    decimales: 2, color:"var(--brand-7)",      grupo: "Temperatura", ayuda: "Temperatura minima del dia actual"},
+    { clave: "temp_max",           titulo: "Temperatura Maxima",        unidad: "°C",    decimales: 2, color:"var(--brand-7)",      grupo: "Temperatura", ayuda: "Temperatura maxima del dia actual"},
+
+    { clave: "mm/h_lluvia",        titulo: "mm/h de lluvia",             unidad: "mm/h", decimales: 2, color:"var(--brand-6)", grupo: "Lluvia", ayuda:"Cantidad de lluvia en mm/h"},
+    { clave: "acum_viento",        titulo: "Acumulado diario de lluvia", unidad: "mm",   decimales: 2, color:"var(--brand-6)", grupo: "Lluvia", ayuda:"Cantidad diaria total de lluvia"},
+    { clave: "prob_lluvia",        titulo: "Probabilidad de lluvia",     unidad: "%",    decimales: 2, color:"var(--brand-6)", grupo: "Lluvia", ayuda: "Probabilidad de lluvia mayor a 0.1 mm en la hora anterior"},
 
     { clave: "humedad",            titulo: "Humedad relativa",   unidad: " %",    decimales: 1, color: "var(--down)",   grupo: "Humedad", ayuda: "HR del DHT22" },
     { clave: "humedad_absoluta",   titulo: "Humedad absoluta",   unidad: " g/m³", decimales: 2, color: "var(--down)",   grupo: "Humedad", ayuda: "Gramos de vapor por m³ de aire" },
     { clave: "vpd",                titulo: "VPD",                unidad: " kPa",  decimales: 2, color: "var(--down)",   grupo: "Humedad", ayuda: "Déficit de presión de vapor" },
+    { clave: "hum_max",            titulo: "Humedad Maxima",     unidad: "%",     decimales: 2, color:"var(--down)",    grupo: "Humedad", ayuda: "Humedad maxima del dia actual"},
+    { clave: "hum_min",            titulo: "Humedad Minima",     unidad: "%",     decimales: 2, color:"var(--down)",    grupo: "Humedad", ayuda: "Humedad minima del dia actual"},
 
-    { clave: "presion",            titulo: "Presión",            unidad: " hPa",  decimales: 2, color: "var(--brand-2)", grupo: "Presión", ayuda: "Presión absoluta medida" },
-    { clave: "presion_mar",        titulo: "Presión nivel mar",  unidad: " hPa",  decimales: 1, color: "var(--brand-2)", grupo: "Presión", ayuda: "Presión reducida a 0 m — comparable entre estaciones" },
-    { clave: "altitud",            titulo: "Altitud",            unidad: " m",    decimales: 0, color: "var(--brand-2)", grupo: "Presión", ayuda: "Altitud fija de la estación (constante)" },
-    { clave: "base_nubes",         titulo: "Base de nubes",      unidad: " m",    decimales: 0, color: "var(--brand-2)", grupo: "Presión", ayuda: "Altura estimada ≈ 125 m por °C de spread" },
-    { clave: "densidad_aire",      titulo: "Densidad del aire",  unidad: " kg/m³", decimales: 3, color: "var(--brand-2)", grupo: "Presión", ayuda: "Aire húmedo: seco + vapor" },
+    { clave: "presion",            titulo: "Presión",            unidad: " hPa",  decimales: 2,  color: "var(--brand-2)",  grupo: "Presión", ayuda: "Presión absoluta medida" },
+    { clave: "presion_mar",        titulo: "Presión nivel mar",  unidad: " hPa",  decimales: 1,  color: "var(--brand-2)",  grupo: "Presión", ayuda: "Presión reducida a 0 m — comparable entre estaciones" },
+    { clave: "altitud",            titulo: "Altitud",            unidad: " m",    decimales: 0,  color: "var(--brand-2)",  grupo: "Presión", ayuda: "Altitud fija de la estación (constante)" },
+    { clave: "base_nubes",         titulo: "Base de nubes",      unidad: " m",    decimales: 0,  color: "var(--brand-2)",  grupo: "Presión", ayuda: "Altura estimada ≈ 125 m por °C de spread" },
+    { clave: "densidad_aire",      titulo: "Densidad del aire",  unidad: " kg/m³", decimales: 3, color: "var(--brand-2)",  grupo: "Presión", ayuda: "Aire húmedo: seco + vapor" },
 
-    { clave: "rssi",               titulo: "RSSI Wi-Fi",         unidad: " dBm",  decimales: 0, color: "var(--brand-1)", grupo: "Conexión", ayuda: "Intensidad de señal (más cerca de 0 = mejor)" },
+    { clave: "vel_viento",         titulo: "Velocidad del viento",       unidad: "Km/h", decimales: 2, color:"var(--brand-3)", grupo: "Viento",   ayuda:"Velocidad del viento en Km/h obtenida desde una API"},
+    { clave: "raf_viento",         titulo: "Rafagas de viento",          unidad: "Km/h", decimales: 2, color:"var(--brand-3)", grupo: "Viento",   ayuda:"Velocidad de la rafagas de viento en Km/h"},
+    { clave: "Max_viento",         titulo: "Velocidad Maxima de viento", unidad: "Km/h", decimales: 2, color:"var(--brand-3)", grupo: "Viento",   ayuda:"Velocidad maxima de viento en Km/h "},
+
+    { clave: "lux",                titulo: "Luz", unidad: "lx", decimales: 2, color:"var(--brand-4)", grupo: "Luz", ayuda: "Cantidad de Luz"},
+
+    { clave: "dia",                titulo: "Salida del sol",        unidad: "",  decimales: 0, color:"var(--brand-4)",         grupo: "Dia",     ayuda: "Horario de la salida del sol"},
+    { clave: "noche",              titulo: "Puesta del sol",        unidad: "",  decimales: 0, color:"var(--brand-4)",         grupo: "Dia",     ayuda: "Horario de la puesta del sol"},
+    { clave: "lunar",              titulo: "Fase Lunar",            unidad: "",  decimales: 0, color:"var(--brand-4)",         grupo: "Dia",     ayuda: "Fase lunar activa"},
+    { clave: "h_solar",            titulo: "Hora solar",            unidad: "",  decimales: 0, color:"var(--brand-4)",         grupo: "Dia",     ayuda: "Hora solar actual"},
+    { clave: "med-solar",          titulo: "Mediodia solar",        unidad: "",  decimales: 0, color:"var(--brand-4)",         grupo: "Dia",     ayuda: "Hora del mediodia solar"},
+
+    { clave: "prom_temp",          titulo: "Promedio ultima hora temperatura",        unidad: "°C",  decimales: 2, color:"var(--brand-7)", grupo: "Temperatura",     ayuda: "Promedio de ultima hora de la temperatura"},
+    { clave: "prom_hum",           titulo: "Promedio de ultima hora humedad",         unidad: "%",   decimales: 2,  color:"var(--down)",   grupo: "Humedad",         ayuda: "Promedio de ultima hora de la humedad"},
+
+    { clave: "rssi",               titulo: "RSSI Wi-Fi",            unidad: " dBm",  decimales: 0, color: "var(--brand-1)",    grupo: "Conexión", ayuda: "Intensidad de señal (más cerca de 0 = mejor)" },
+    { clave: "servidor",           titulo: "Tiempo",                unidad: "min",   decimales: 0, color: "var(--brand-1)",    grupo: "Conexión", ayuda: "Tiempo de conexion al servidor"},
+    { clave: "calidad",            titulo: "Calidad del Wi-Fi",     unidad: "",      decimales: 0, color: "var(--brand-1)",    grupo: "Conexión", ayuda: "Calidad de la conexion de la red Wi-Fi"},
+    { clave: "volt_bat",           titulo: "Tension de la bateria", unidad: "V",     decimales: 2, color: "var(--brand-2)",    grupo: "Bateria",  ayuda: "Tension de la bateria"},
+
 ];
+    
+    
 
 // Historial por clave para las sparklines.
 const historiales = new Map();

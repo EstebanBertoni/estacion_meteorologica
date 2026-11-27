@@ -6,6 +6,12 @@
   --line: #dbe3ec;
   --brand-1: #1d4ed8;
   --brand-2: #0891b2;
+  --brand-3: #4f46e5;  /* índigo: vecino directo del azul */
+  --brand-4: #7c3aed;  /* violeta */
+  --brand-5: #0d9488;  /* verde azulado (teal): vecino del cian */
+  --brand-6: #0284c7;  /* celeste intenso */
+  --brand-7: #d97706;  /* ámbar oscuro: contraste cálido */
+  --brand-8: #e11d48; /* rosa/carmín: acento fuerte */
   --ok: #16a34a;
   --warn: #f59e0b;
   --bad: #dc2626;
@@ -59,7 +65,8 @@ header {
   gap: .75rem;
 }
 
-h1 { font-size: 1.4rem; font-weight: 650; }
+h1 { font-size: 1.4rem; font-weight: 650; margin: 0;}
+
 
 .status-badge {
   display: inline-flex;
