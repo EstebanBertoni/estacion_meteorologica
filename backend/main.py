@@ -54,6 +54,13 @@ INTERVALO_RECONEXION_MQTT = 5
 # no aporta datos nuevos y el índice único deduplica igual.
 INTERVALO_REFERENCIA_S = 900
 
+# Fallback de sensores: si no llega telemetría válida de la estación en
+# FALLBACK_SENSOR_S segundos, se usan valores de Open-Meteo marcados como
+# "open-meteo (fallback)". Al volver la estación se restaura lo local.
+FALLBACK_SENSOR_S = 60.0
+FALLBACK_INTERVALO_S = 60.0
+FALLBACK_REFERENCIA_MAX_EDAD_S = 300.0
+
 # Coordenadas de la estación (Rafaela, Santa Fe, Argentina).
 # Son la ubicación del microclima: la referencia del modelo se
 # interpola a este punto.
@@ -90,6 +97,10 @@ latest_data = {
     # Mensajes de alerta activos (se envían por WebSocket al dashboard).
     "alertas": [],
 
+    # Procedencia de temperatura/humedad/presión: "estacion" u
+    # "open-meteo (fallback)".
+    "fuente_sensores": None,
+
     # Referencia regional (modelo). Se completa en tarea_referencia().
     "vel_viento": None,
     "raf_viento": None,
@@ -116,12 +127,22 @@ mqtt_conectado = False
 # se marca la fuente en cada valor para que nunca se confunda con el
 # instrumento propio de la estación.
 referencia_actual = {
+    "fecha_observacion": None,
+    "temp_c": None,
+    "humedad": None,
+    "presion_superficie_hpa": None,
+    "presion_msl_hpa": None,
     "vel_viento": None,
     "raf_viento": None,
     "viento_direccion": None,
     "lluvia_mm_h": None,
     "fuente": None,
 }
+
+# Reloj monotonico: detecta cuándo dejaron de llegar mediciones reales.
+ultimo_mqtt_ms = None
+ultima_referencia_ms = None
+usando_fallback = False
 
 mqtt_queue = asyncio.Queue()
 
@@ -514,6 +535,75 @@ def construir_datos(
 
 
 # ============================================================
+# REFERENCIA REGIONAL Y FALLBACK
+# ============================================================
+
+def actualizar_referencia(datos: dict) -> None:
+    """Guarda en memoria la última respuesta del modelo (Open-Meteo)."""
+    global referencia_actual, ultima_referencia_ms
+
+    referencia_actual.update(
+        {
+            "fecha_observacion": datos.get("fecha_observacion"),
+            "temp_c": datos.get("temp_c"),
+            "humedad": datos.get("humedad"),
+            "presion_superficie_hpa": datos.get("presion_superficie_hpa"),
+            "presion_msl_hpa": datos.get("presion_msl_hpa"),
+            "vel_viento": datos.get("viento_kmh"),
+            "raf_viento": datos.get("rafagas_kmh"),
+            "viento_direccion": datos.get("viento_dir"),
+            "lluvia_mm_h": datos.get("lluvia_mm_h"),
+            "fuente": "open-meteo (modelo)",
+        }
+    )
+    ultima_referencia_ms = time.monotonic()
+
+
+def campos_referencia_para_estado() -> dict:
+    """Campos del modelo que se exponen en latest_data / WebSocket."""
+    return {
+        "vel_viento": referencia_actual["vel_viento"],
+        "raf_viento": referencia_actual["raf_viento"],
+        "viento_direccion": referencia_actual["viento_direccion"],
+        "lluvia_mm_h": referencia_actual["lluvia_mm_h"],
+        "fuente_viento": referencia_actual["fuente"],
+        "fuente_lluvia": referencia_actual["fuente"],
+        # Alias con el nombre de columna de SQLite.
+        "viento_velocidad": referencia_actual["vel_viento"],
+        "viento_rafaga": referencia_actual["raf_viento"],
+    }
+
+
+def construir_fallback() -> dict | None:
+    """Arma un estado con datos del modelo cuando no hay telemetría local.
+
+    La temperatura del modelo se usa tanto para DHT22 como para BMP180;
+    la presión se toma de `surface_pressure` (no de `pressure_msl`) para
+    aproximar la presión absoluta local a la altitud de la estación.
+    Devuelve None si todavía no hay referencia con temperatura válida.
+    """
+    if referencia_actual.get("temp_c") is None:
+        return None
+
+    datos = construir_datos(
+        t_dht=referencia_actual["temp_c"],
+        humedad=referencia_actual["humedad"],
+        t_bmp=referencia_actual["temp_c"],
+        presion=referencia_actual["presion_superficie_hpa"],
+        rssi=None,
+        ts_adquisicion=None,
+    )
+    datos.update(campos_referencia_para_estado())
+    datos["fuente_sensores"] = "open-meteo (fallback)"
+    datos["alertas"] = evaluar_alertas(
+        temperatura=datos["t_dht"],
+        viento=datos["vel_viento"],
+        lluvia=datos["lluvia_mm_h"],
+    )
+    return datos
+
+
+# ============================================================
 # WEBSOCKET MANAGER
 # ============================================================
 
@@ -598,7 +688,7 @@ def on_message(client, userdata, msg):
     una nueva medición desde el ESP32.
     """
 
-    global latest_data
+    global latest_data, ultimo_mqtt_ms, usando_fallback
 
     try:
 
@@ -668,20 +758,20 @@ def on_message(client, userdata, msg):
         # ----------------------------------------------------
         # Se toma del último dato de Open-Meteo y se marca la fuente
         # para no confundirlo con una medición instrumental propia.
-        fuente = referencia_actual["fuente"]
-        nuevos_datos.update(
-            {
-                "vel_viento": referencia_actual["vel_viento"],
-                "raf_viento": referencia_actual["raf_viento"],
-                "viento_direccion": referencia_actual["viento_direccion"],
-                "lluvia_mm_h": referencia_actual["lluvia_mm_h"],
-                "fuente_viento": fuente,
-                "fuente_lluvia": fuente,
-                # Nombres de columna de `mediciones`, para la persistencia.
-                "viento_velocidad": referencia_actual["vel_viento"],
-                "viento_rafaga": referencia_actual["raf_viento"],
-            }
-        )
+        nuevos_datos.update(campos_referencia_para_estado())
+
+        # La telemetría real manda: si venía usando el fallback, se
+        # restaura la procedencia local en cuanto llega un dato válido.
+        if usando_fallback:
+            usando_fallback = False
+            print("[FALLBACK] Estación activa nuevamente; se restauran datos locales")
+        nuevos_datos["fuente_sensores"] = "estacion"
+
+        # Solo cuenta como respuesta de la estación si al menos un
+        # sensor entregó un valor. Un payload con todo null no reinicia
+        # el temporizador del fallback.
+        if any(v is not None for v in (t_dht, humedad, t_bmp, presion)):
+            ultimo_mqtt_ms = time.monotonic()
 
         # ----------------------------------------------------
         # Alertas (temperatura local + referencia del modelo)
@@ -882,7 +972,7 @@ async def tarea_referencia():
       se reintenta en el próximo ciclo.
     - insertar_referencia deduplica por fecha_observacion.
     """
-    global referencia_actual, latest_data
+    global latest_data
 
     await asyncio.sleep(5)   # no competir con el arranque
 
@@ -897,31 +987,8 @@ async def tarea_referencia():
 
             if datos:
                 insertado = insertar_referencia(datos)
-
-                # La procedencia viaja con el dato: es modelo, no sensor.
-                fuente = "open-meteo (modelo)"
-                referencia_actual.update(
-                    {
-                        "vel_viento": datos.get("viento_kmh"),
-                        "raf_viento": datos.get("rafagas_kmh"),
-                        "viento_direccion": datos.get("viento_dir"),
-                        "lluvia_mm_h": datos.get("lluvia_mm_h"),
-                        "fuente": fuente,
-                    }
-                )
-
-                latest_data.update(
-                    {
-                        "vel_viento": referencia_actual["vel_viento"],
-                        "raf_viento": referencia_actual["raf_viento"],
-                        "viento_direccion": referencia_actual["viento_direccion"],
-                        "lluvia_mm_h": referencia_actual["lluvia_mm_h"],
-                        "fuente_viento": fuente,
-                        "fuente_lluvia": fuente,
-                        "viento_velocidad": referencia_actual["vel_viento"],
-                        "viento_rafaga": referencia_actual["raf_viento"],
-                    }
-                )
+                actualizar_referencia(datos)
+                latest_data.update(campos_referencia_para_estado())
 
                 mensajes = evaluar_alertas(
                     temperatura=latest_data.get("t_dht"),
@@ -957,6 +1024,78 @@ async def tarea_referencia():
             print(f"[REFERENCIA ERROR] {error}")
 
         await asyncio.sleep(INTERVALO_REFERENCIA_S)
+
+
+async def tarea_fallback_sensores():
+    """Suple los sensores con Open-Meteo si la estación deja de enviar.
+
+    Los datos se marcan con `fuente_sensores = "open-meteo (fallback)"`
+    y entran al mismo pipeline que MQTT (SQLite + WebSocket). En cuanto
+    llega una medición real, `on_message` restaura la procedencia local.
+    """
+    global usando_fallback, latest_data
+
+    # Dar tiempo a que llegue la primera medición real antes de activar.
+    await asyncio.sleep(FALLBACK_SENSOR_S + 5)
+
+    while True:
+        ahora = time.monotonic()
+        sin_datos = (
+            ultimo_mqtt_ms is None
+            or ahora - ultimo_mqtt_ms > FALLBACK_SENSOR_S
+        )
+
+        if not sin_datos:
+            await asyncio.sleep(FALLBACK_INTERVALO_S)
+            continue
+
+        # Si la referencia está vieja (o nunca llegó), refrescarla.
+        referencia_vieja = (
+            ultima_referencia_ms is None
+            or ahora - ultima_referencia_ms > FALLBACK_REFERENCIA_MAX_EDAD_S
+        )
+        if referencia_vieja:
+            try:
+                datos = await asyncio.to_thread(
+                    obtener_openmeteo,
+                    LATITUD_ESTACION,
+                    LONGITUD_ESTACION,
+                )
+                if datos:
+                    await asyncio.to_thread(insertar_referencia, datos)
+                    actualizar_referencia(datos)
+            except Exception as error:
+                print(
+                    f"[FALLBACK ERROR] No se pudo refrescar Open-Meteo: {error}"
+                )
+
+        datos_fallback = construir_fallback()
+        if datos_fallback is None:
+            await asyncio.sleep(FALLBACK_INTERVALO_S)
+            continue
+
+        if not usando_fallback:
+            usando_fallback = True
+            print(
+                "[FALLBACK] Sin telemetría de la estación hace "
+                f"{FALLBACK_SENSOR_S:.0f} s: usando Open-Meteo"
+            )
+
+        latest_data.clear()
+        latest_data.update(datos_fallback)
+
+        if datos_fallback["alertas"]:
+            print("[ALERTA] " + " | ".join(datos_fallback["alertas"]))
+            threading.Thread(
+                target=activar_sonido,
+                daemon=True,
+                name="Alerta-Sonido",
+            ).start()
+
+        # Entra al pipeline habitual: se persiste y se difunde por WS.
+        mqtt_queue.put_nowait(datos_fallback)
+
+        await asyncio.sleep(FALLBACK_INTERVALO_S)
 
 
 # ============================================================
@@ -999,6 +1138,10 @@ async def lifespan(app: FastAPI):
 
     asyncio.create_task(
         tarea_referencia()
+    )
+
+    asyncio.create_task(
+        tarea_fallback_sensores()
     )
 
     print(
@@ -1064,6 +1207,8 @@ async def health():
         "mqtt": "conectado" if mqtt_conectado else "desconectado",
         "ultima_medicion": latest_data.get("timestamp"),
         "alertas_activas": len(latest_data.get("alertas") or []),
+        "fuente_sensores": latest_data.get("fuente_sensores"),
+        "usando_fallback": usando_fallback,
     }
 
 

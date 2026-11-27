@@ -109,6 +109,13 @@ modelo, no medición instrumental: viajan con `fuente_viento` /
 esa procedencia. La tabla `referencia_openmeteo` sigue siendo el histórico
 canónico del modelo.
 
+Si no llega ninguna medición válida durante **60 s**, `tarea_fallback_sensores`
+reemplaza temperatura, humedad y presión por valores del modelo y lo marca
+con `fuente_sensores = "open-meteo (fallback)"`. Esos registros entran al
+mismo pipeline MQTT→SQLite→WebSocket, pero se distinguen del dato
+instrumental. Al volver la estación, `on_message` restaura
+`fuente_sensores = "estacion"` automáticamente.
+
 ### Enriquecimiento en el backend
 
 | Magnitud | Implementación | Observación |

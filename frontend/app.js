@@ -194,7 +194,11 @@ function actualizarDashboard(datos) {
     // Footer: última medición (timestamp de adquisición o recepción)
     const lastUpdate = document.getElementById("last-update");
     if (lastUpdate && datos.timestamp) {
-        lastUpdate.textContent = formatearFecha(datos.timestamp);
+        const origen =
+            datos.fuente_sensores === "open-meteo (fallback)"
+                ? " · fallback Open-Meteo"
+                : "";
+        lastUpdate.textContent = formatearFecha(datos.timestamp) + origen;
     }
 }
 

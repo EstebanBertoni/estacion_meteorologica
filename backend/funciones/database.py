@@ -35,7 +35,8 @@ def init_db():
             viento_direccion TEXT,
             fuente_viento TEXT,
             lluvia_mm_h REAL,
-            fuente_lluvia TEXT
+            fuente_lluvia TEXT,
+            fuente_sensores TEXT
         )
         """
     )
@@ -49,6 +50,7 @@ def init_db():
         ("fuente_viento", "TEXT"),
         ("lluvia_mm_h", "REAL"),
         ("fuente_lluvia", "TEXT"),
+        ("fuente_sensores", "TEXT"),
     ]
 
     cursor.execute("PRAGMA table_info(mediciones)")
@@ -151,8 +153,8 @@ def insertar_medicion(data: dict):
             ts_adquisicion, fecha_hora, temp_dht, humedad,
             temp_bmp, presion, altitud, punto_rocio, sensacion_termica, rssi,
             viento_velocidad, viento_rafaga, viento_direccion, fuente_viento,
-            lluvia_mm_h, fuente_lluvia
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            lluvia_mm_h, fuente_lluvia, fuente_sensores
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             data.get("ts_adquisicion"),
@@ -171,6 +173,7 @@ def insertar_medicion(data: dict):
             data.get("fuente_viento"),
             data.get("lluvia_mm_h"),
             data.get("fuente_lluvia"),
+            data.get("fuente_sensores"),
         ),
     )
 
