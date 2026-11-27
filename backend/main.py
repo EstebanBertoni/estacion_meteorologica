@@ -98,6 +98,9 @@ latest_data = {
 
 main_loop = None
 
+# Estado de conexión MQTT, usado por /health.
+mqtt_conectado = False
+
 mqtt_queue = asyncio.Queue()
 
 
@@ -721,18 +724,30 @@ def start_mqtt_loop():
         client.username_pw_set(MQTT_USER, MQTT_PASS)
 
     def on_connect(client, userdata, flags, reason_code, properties=None):
+        global mqtt_conectado
+
         # La suscripción va en el callback de conexión: así se
         # (re)inscribe automáticamente en cada reconexión, en lugar
         # de suscribirse una sola vez antes de estar conectado.
         if reason_code == 0:
+            mqtt_conectado = True
             print(f"[MQTT] Suscripto al tópico: '{MQTT_TOPIC}'")
             client.subscribe(MQTT_TOPIC)
         elif reason_code in (4, 5) or str(reason_code) in ("Not authorized", "Bad user name or password"):
+            mqtt_conectado = False
             print(f"[MQTT] AUTENTICACIÓN RECHAZADA ({reason_code}): revisar MQTT_USER/MQTT_PASS")
         else:
+            mqtt_conectado = False
             print(f"[MQTT] Error de conexión: {reason_code}")
 
+    def on_disconnect(client, userdata, disconnect_flags, reason_code, properties=None):
+        global mqtt_conectado
+
+        mqtt_conectado = False
+        print(f"[MQTT] Desconectado del broker ({reason_code})")
+
     client.on_connect = on_connect
+    client.on_disconnect = on_disconnect
 
     while True:
 
@@ -924,6 +939,13 @@ app.mount(
     StaticFiles(directory="../frontend"),
     name="static"
 )
+# El dashboard usa rutas /frontend/...; se monta el mismo directorio
+# dos veces para mantener compatibilidad con /static/... histórico.
+app.mount(
+    "/frontend",
+    StaticFiles(directory="../frontend"),
+    name="frontend"
+)
 
 
 # ============================================================
@@ -942,6 +964,17 @@ app.add_middleware(
 # ============================================================
 # RUTAS HTTP
 # ============================================================
+
+@app.get("/health")
+async def health():
+    """Chequeo liviano para el monitor del servicio (NSSM)."""
+    return {
+        "estado": "ok",
+        "mqtt": "conectado" if mqtt_conectado else "desconectado",
+        "ultima_medicion": latest_data.get("timestamp"),
+        "alertas_activas": len(latest_data.get("alertas") or []),
+    }
+
 
 @app.get("/")
 async def inicio():
