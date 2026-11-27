@@ -89,6 +89,17 @@ latest_data = {
 
     # Mensajes de alerta activos (se envían por WebSocket al dashboard).
     "alertas": [],
+
+    # Referencia regional (modelo). Se completa en tarea_referencia().
+    "vel_viento": None,
+    "raf_viento": None,
+    "viento_direccion": None,
+    "lluvia_mm_h": None,
+    "fuente_viento": None,
+    "fuente_lluvia": None,
+    # Alias con el nombre de columna de SQLite.
+    "viento_velocidad": None,
+    "viento_rafaga": None,
 }
 
 
@@ -100,6 +111,17 @@ main_loop = None
 
 # Estado de conexión MQTT, usado por /health.
 mqtt_conectado = False
+
+# Última referencia regional (Open-Meteo). Es MODELO, no medición local:
+# se marca la fuente en cada valor para que nunca se confunda con el
+# instrumento propio de la estación.
+referencia_actual = {
+    "vel_viento": None,
+    "raf_viento": None,
+    "viento_direccion": None,
+    "lluvia_mm_h": None,
+    "fuente": None,
+}
 
 mqtt_queue = asyncio.Queue()
 
@@ -629,18 +651,6 @@ def on_message(client, userdata, msg):
             ).isoformat(timespec="seconds")
 
         # ----------------------------------------------------
-        # Alertas
-        # ----------------------------------------------------
-        # Por ahora solo hay fuente confiable para temperatura.
-        # Viento y lluvia se pasan como None hasta integrar SIGA /
-        # sensores dedicados: None significa "sin dato", no 0.
-        mensajes_alerta = evaluar_alertas(
-            temperatura=t_dht,
-            viento=None,
-            lluvia=None,
-        )
-
-        # ----------------------------------------------------
         # Construcción de datos derivados
         # ----------------------------------------------------
 
@@ -653,8 +663,34 @@ def on_message(client, userdata, msg):
             ts_adquisicion=ts_adquisicion,
         )
 
-        # El campo viaja en el WebSocket; no se persiste (insertar_medicion
-        # solo lee las columnas conocidas).
+        # ----------------------------------------------------
+        # Referencia regional (MODELO): viento y lluvia
+        # ----------------------------------------------------
+        # Se toma del último dato de Open-Meteo y se marca la fuente
+        # para no confundirlo con una medición instrumental propia.
+        fuente = referencia_actual["fuente"]
+        nuevos_datos.update(
+            {
+                "vel_viento": referencia_actual["vel_viento"],
+                "raf_viento": referencia_actual["raf_viento"],
+                "viento_direccion": referencia_actual["viento_direccion"],
+                "lluvia_mm_h": referencia_actual["lluvia_mm_h"],
+                "fuente_viento": fuente,
+                "fuente_lluvia": fuente,
+                # Nombres de columna de `mediciones`, para la persistencia.
+                "viento_velocidad": referencia_actual["vel_viento"],
+                "viento_rafaga": referencia_actual["raf_viento"],
+            }
+        )
+
+        # ----------------------------------------------------
+        # Alertas (temperatura local + referencia del modelo)
+        # ----------------------------------------------------
+        mensajes_alerta = evaluar_alertas(
+            temperatura=t_dht,
+            viento=nuevos_datos["vel_viento"],
+            lluvia=nuevos_datos["lluvia_mm_h"],
+        )
         nuevos_datos["alertas"] = mensajes_alerta
 
         if mensajes_alerta:
@@ -671,7 +707,11 @@ def on_message(client, userdata, msg):
         # Actualizar estado global
         # ----------------------------------------------------
 
-        latest_data = nuevos_datos
+        # Se muta el mismo dict (en lugar de reasignarlo) para que la
+        # tarea de referencia pueda actualizar viento/lluvia sin perder
+        # el objeto que ya están usando los clientes WebSocket.
+        latest_data.clear()
+        latest_data.update(nuevos_datos)
 
         print(
             "[DATOS PROCESADOS]"
@@ -836,10 +876,13 @@ async def tarea_referencia():
     - Es una TAREA, no parte de la ingesta: los valores de
       Open-Meteo son SALIDA DE MODELO NUMÉRICO, no mediciones del
       microclima. Conviven con la estación, no la reemplazan.
+    - El viento y la lluvia del modelo se exponen en el WebSocket y
+      alimentan los umbrales de alerta, siempre con `fuente` explícita.
     - Si falla la consulta (sin internet, API caída), no es fatal:
       se reintenta en el próximo ciclo.
     - insertar_referencia deduplica por fecha_observacion.
     """
+    global referencia_actual, latest_data
 
     await asyncio.sleep(5)   # no competir con el arranque
 
@@ -854,6 +897,54 @@ async def tarea_referencia():
 
             if datos:
                 insertado = insertar_referencia(datos)
+
+                # La procedencia viaja con el dato: es modelo, no sensor.
+                fuente = "open-meteo (modelo)"
+                referencia_actual.update(
+                    {
+                        "vel_viento": datos.get("viento_kmh"),
+                        "raf_viento": datos.get("rafagas_kmh"),
+                        "viento_direccion": datos.get("viento_dir"),
+                        "lluvia_mm_h": datos.get("lluvia_mm_h"),
+                        "fuente": fuente,
+                    }
+                )
+
+                latest_data.update(
+                    {
+                        "vel_viento": referencia_actual["vel_viento"],
+                        "raf_viento": referencia_actual["raf_viento"],
+                        "viento_direccion": referencia_actual["viento_direccion"],
+                        "lluvia_mm_h": referencia_actual["lluvia_mm_h"],
+                        "fuente_viento": fuente,
+                        "fuente_lluvia": fuente,
+                        "viento_velocidad": referencia_actual["vel_viento"],
+                        "viento_rafaga": referencia_actual["raf_viento"],
+                    }
+                )
+
+                mensajes = evaluar_alertas(
+                    temperatura=latest_data.get("t_dht"),
+                    viento=referencia_actual["vel_viento"],
+                    lluvia=referencia_actual["lluvia_mm_h"],
+                )
+                latest_data["alertas"] = mensajes
+
+                if mensajes:
+                    print("[ALERTA] " + " | ".join(mensajes))
+                    threading.Thread(
+                        target=activar_sonido,
+                        daemon=True,
+                        name="Alerta-Sonido",
+                    ).start()
+
+                # La referencia cambia sin que llegue una medición MQTT:
+                # hay que empujar el nuevo estado a los clientes.
+                try:
+                    await manager.broadcast(latest_data)
+                except Exception as error:
+                    print("[WEBSOCKET ERROR]", error)
+
                 if insertado:
                     print(
                         f"[REFERENCIA] Nueva observación del modelo "

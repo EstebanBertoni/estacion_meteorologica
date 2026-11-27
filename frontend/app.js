@@ -41,7 +41,7 @@ const TARJETAS = [
     { clave: "temp_min",           titulo: "Temperatura Minima",        unidad: "°C",    decimales: 2, color:"var(--brand-7)",      grupo: "Temperatura", ayuda: "Temperatura minima del dia actual"},
     { clave: "temp_max",           titulo: "Temperatura Maxima",        unidad: "°C",    decimales: 2, color:"var(--brand-7)",      grupo: "Temperatura", ayuda: "Temperatura maxima del dia actual"},
 
-    { clave: "mm/h_lluvia",        titulo: "mm/h de lluvia",             unidad: "mm/h", decimales: 2, color:"var(--brand-6)", grupo: "Lluvia", ayuda:"Cantidad de lluvia en mm/h"},
+    { clave: "lluvia_mm_h",        titulo: "mm/h de lluvia",             unidad: "mm/h", decimales: 2, color:"var(--brand-6)", grupo: "Lluvia", ayuda:"Precipitación del modelo Open-Meteo en mm/h"},
     { clave: "acum_viento",        titulo: "Acumulado diario de lluvia", unidad: "mm",   decimales: 2, color:"var(--brand-6)", grupo: "Lluvia", ayuda:"Cantidad diaria total de lluvia"},
     { clave: "prob_lluvia",        titulo: "Probabilidad de lluvia",     unidad: "%",    decimales: 2, color:"var(--brand-6)", grupo: "Lluvia", ayuda: "Probabilidad de lluvia mayor a 0.1 mm en la hora anterior"},
 
@@ -57,8 +57,8 @@ const TARJETAS = [
     { clave: "base_nubes",         titulo: "Base de nubes",      unidad: " m",    decimales: 0,  color: "var(--brand-2)",  grupo: "Presión", ayuda: "Altura estimada ≈ 125 m por °C de spread" },
     { clave: "densidad_aire",      titulo: "Densidad del aire",  unidad: " kg/m³", decimales: 3, color: "var(--brand-2)",  grupo: "Presión", ayuda: "Aire húmedo: seco + vapor" },
 
-    { clave: "vel_viento",         titulo: "Velocidad del viento",       unidad: "Km/h", decimales: 2, color:"var(--brand-3)", grupo: "Viento",   ayuda:"Velocidad del viento en Km/h obtenida desde una API"},
-    { clave: "raf_viento",         titulo: "Rafagas de viento",          unidad: "Km/h", decimales: 2, color:"var(--brand-3)", grupo: "Viento",   ayuda:"Velocidad de la rafagas de viento en Km/h"},
+    { clave: "vel_viento",         titulo: "Velocidad del viento",       unidad: "Km/h", decimales: 2, color:"var(--brand-3)", grupo: "Viento",   ayuda:"Modelo Open-Meteo (no medición local)"},
+    { clave: "raf_viento",         titulo: "Rafagas de viento",          unidad: "Km/h", decimales: 2, color:"var(--brand-3)", grupo: "Viento",   ayuda:"Ráfagas del modelo Open-Meteo en Km/h"},
     { clave: "Max_viento",         titulo: "Velocidad Maxima de viento", unidad: "Km/h", decimales: 2, color:"var(--brand-3)", grupo: "Viento",   ayuda:"Velocidad maxima de viento en Km/h "},
 
     { clave: "lux",                titulo: "Luz", unidad: "lx", decimales: 2, color:"var(--brand-4)", grupo: "Luz", ayuda: "Cantidad de Luz"},

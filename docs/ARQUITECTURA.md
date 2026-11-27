@@ -102,6 +102,13 @@ El firmware de la rama `Pagina_Web` publica además `ip_esp32`, `red_ssid`,
 `ts_epoch` (o `null` si NTP no sincronizó), `bmp_ok` y `dht_ok`; el backend
 de `main` ignora esas claves.
 
+El backend de `Pagina_Web` completa el estado con **viento y lluvia de
+Open-Meteo** (`vel_viento`, `raf_viento`, `lluvia_mm_h`). Son salida de
+modelo, no medición instrumental: viajan con `fuente_viento` /
+`fuente_lluvia = "open-meteo (modelo)"` y se persisten en `mediciones` con
+esa procedencia. La tabla `referencia_openmeteo` sigue siendo el histórico
+canónico del modelo.
+
 ### Enriquecimiento en el backend
 
 | Magnitud | Implementación | Observación |
@@ -173,5 +180,5 @@ propio repositorio. Ver la [guía de validación](https://github.com/EstebanBert
 | Rama | Incorpora |
 |---|---|
 | `Estacion_Meteorologica_V1.0` | Primera versión del backend y dashboard. |
-| `Pagina_Web` | Firmware Nano (BMP180 + DHT22, validación de rangos) y ESP32 (LittleFS, NTP, RSSI); backend modular con `credentials.py` gitignoreado, `ts_adquisicion`, viento, referencia Open-Meteo separada de `mediciones`, índice por fecha y más variables derivadas. |
+| `Pagina_Web` | Firmware Nano (BMP180 + DHT22, validación de rangos) y ESP32 (LittleFS, NTP, RSSI); backend modular con `credentials.py` gitignoreado, `ts_adquisicion`, viento y lluvia del modelo inyectados en el WebSocket/DB con procedencia explícita, referencia Open-Meteo separada, índice por fecha, alertas con umbrales y más variables derivadas. |
 | `main` | Versión simplificada V1.1 usada como entrada al proyecto. |

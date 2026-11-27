@@ -11,7 +11,8 @@ VARIABLES_ACTUALES = (
     "surface_pressure,"
     "wind_speed_10m,"
     "wind_direction_10m,"
-    "wind_gusts_10m"
+    "wind_gusts_10m,"
+    "precipitation"
 )
 
 
@@ -32,6 +33,8 @@ def obtener_openmeteo(latitud: float, longitud: float, timeout: int = 10) -> dic
     - surface_pressure: presión del modelo a la altitud de la celda.
     Ambas se almacenan; para comparar con nuestra `presion_mar` local,
     usar `presion_msl_hpa`.
+    - precipitation: lluvia actual del modelo en mm/h (también modelo,
+    no pluviómetro).
 
     Devuelve None ante error de red o respuesta inesperada.
     """
@@ -86,4 +89,7 @@ def obtener_openmeteo(latitud: float, longitud: float, timeout: int = 10) -> dic
         "viento_kmh": actual.get("wind_speed_10m"),
         "viento_dir": actual.get("wind_direction_10m"),
         "rafagas_kmh": actual.get("wind_gusts_10m"),
+        # Precipitación actual del modelo en mm/h. Es salida de modelo,
+        # no lectura de un pluviómetro local.
+        "lluvia_mm_h": actual.get("precipitation"),
     }

@@ -33,7 +33,9 @@ def init_db():
             viento_velocidad REAL,
             viento_rafaga REAL,
             viento_direccion TEXT,
-            fuente_viento TEXT
+            fuente_viento TEXT,
+            lluvia_mm_h REAL,
+            fuente_lluvia TEXT
         )
         """
     )
@@ -45,6 +47,8 @@ def init_db():
         ("viento_rafaga", "REAL"),
         ("viento_direccion", "TEXT"),
         ("fuente_viento", "TEXT"),
+        ("lluvia_mm_h", "REAL"),
+        ("fuente_lluvia", "TEXT"),
     ]
 
     cursor.execute("PRAGMA table_info(mediciones)")
@@ -82,7 +86,8 @@ def init_db():
             presion_superficie_hpa REAL,
             viento_kmh REAL,
             viento_dir INTEGER,
-            rafagas_kmh REAL
+            rafagas_kmh REAL,
+            lluvia_mm_h REAL
         )
         """
     )
@@ -93,6 +98,14 @@ def init_db():
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_referencia_observacion "
         "ON referencia_openmeteo (fecha_observacion)"
     )
+
+    # Migración de la tabla de referencia para bases preexistentes.
+    cursor.execute("PRAGMA table_info(referencia_openmeteo)")
+    columnas_referencia = [col[1] for col in cursor.fetchall()]
+    if "lluvia_mm_h" not in columnas_referencia:
+        cursor.execute(
+            "ALTER TABLE referencia_openmeteo ADD COLUMN lluvia_mm_h REAL"
+        )
 
     # Migración: la tabla observaciones_metar quedó vacía (SAFS no
     # emite METAR). Se elimina solo si realmente está vacía.
@@ -137,8 +150,9 @@ def insertar_medicion(data: dict):
         INSERT INTO mediciones (
             ts_adquisicion, fecha_hora, temp_dht, humedad,
             temp_bmp, presion, altitud, punto_rocio, sensacion_termica, rssi,
-            viento_velocidad, viento_rafaga, viento_direccion, fuente_viento
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            viento_velocidad, viento_rafaga, viento_direccion, fuente_viento,
+            lluvia_mm_h, fuente_lluvia
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             data.get("ts_adquisicion"),
@@ -155,6 +169,8 @@ def insertar_medicion(data: dict):
             data.get("viento_rafaga"),
             data.get("viento_direccion"),
             data.get("fuente_viento"),
+            data.get("lluvia_mm_h"),
+            data.get("fuente_lluvia"),
         ),
     )
 
@@ -200,8 +216,8 @@ def insertar_referencia(data: dict) -> bool:
             fecha_observacion, fecha_recepcion, fuente,
             latitud, longitud, temp_c, humedad,
             presion_msl_hpa, presion_superficie_hpa,
-            viento_kmh, viento_dir, rafagas_kmh
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            viento_kmh, viento_dir, rafagas_kmh, lluvia_mm_h
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             data.get("fecha_observacion"),
@@ -216,6 +232,7 @@ def insertar_referencia(data: dict) -> bool:
             data.get("viento_kmh"),
             data.get("viento_dir"),
             data.get("rafagas_kmh"),
+            data.get("lluvia_mm_h"),
         ),
     )
 
