@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#1d4ed8">
+  <title>Estación Meteorológica - Tiempo Real</title>
+  <link rel="stylesheet" href="/frontend/style.css">
+  <script src="/frontend/app.js" defer></script>
+  <link rel="icon" type="image/svg+xml" href="/frontend/assets/cloud-sun.svg">
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <h1>Estación Meteorológica</h1>
+      <div class="status-badge" role="status" aria-live="polite">
+        <span id="dot" class="status-dot"></span>
+        <span id="status-text">Desconectado</span>
+      </div>
+    </div>
+  </header>
+
+  <main id="dashboard" class="loading" aria-label="Mediciones de la estación"></main>
+
+  <footer>
+    Última medición: <span id="last-update">Sin datos</span>
+  </footer>
+
+  
+</body>
+</html>

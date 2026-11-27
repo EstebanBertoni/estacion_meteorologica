@@ -4,7 +4,7 @@ import paho.mqtt.client as mqtt
 # Configuración del Broker
 BROKER_IP = "127.0.0.1"  # Al ejecutarse en la misma PC que Mosquitto
 PORT = 1883
-TOPIC = "estacion/telemtria" # Cambia por el tópico exacto que usa el ESP32
+TOPIC = "estacion/telemetria" # Debe coincidir con MQTT_TOPIC de main.py y del ESP32
 
 # Callback cuando el cliente se conecta al broker
 def on_connect(client, userdata, flags, rc, properties=None):
