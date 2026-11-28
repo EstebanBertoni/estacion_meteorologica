@@ -1,6 +1,8 @@
 import requests
 from datetime import datetime, timezone
 
+from funciones.database import rango_dia_local_utc
+
 URL_BASE = "https://api.open-meteo.com/v1/forecast"
 
 # Variables del estado actual que nos interesan (API de Open-Meteo)
@@ -35,6 +37,8 @@ def obtener_openmeteo(latitud: float, longitud: float, timeout: int = 10) -> dic
     usar `presion_msl_hpa`.
     - precipitation: lluvia actual del modelo en mm/h (también modelo,
     no pluviómetro).
+    - prob_lluvia: máxima probabilidad horaria de precipitación del día
+    local, calculada sobre el bloque `hourly` del modelo.
 
     Devuelve None ante error de red o respuesta inesperada.
     """
@@ -43,6 +47,10 @@ def obtener_openmeteo(latitud: float, longitud: float, timeout: int = 10) -> dic
         "latitude": latitud,
         "longitude": longitud,
         "current": VARIABLES_ACTUALES,
+        # Probabilidad horaria: se usa para el máximo diario mostrado
+        # en el dashboard. Es modelo, no medición local.
+        "hourly": "precipitation_probability",
+        "forecast_days": 2,
         "wind_speed_unit": "kmh",
         # Disciplina UTC: la hora del modelo llega como ISO en UTC y la
         # local la calcula el frontend, igual que con el resto del sistema.
@@ -77,6 +85,29 @@ def obtener_openmeteo(latitud: float, longitud: float, timeout: int = 10) -> dic
         except ValueError:
             fecha_observacion = hora_modelo   # conservar crudo ante formatos nuevos
 
+    # Probabilidad máxima de lluvia del día local. Open-Meteo entrega
+    # horas como "2026-11-28T15:00" (sin offset); se normalizan al
+    # mismo formato ISO UTC que el resto del sistema antes de comparar.
+    prob_lluvia = None
+    inicio_dia, fin_dia = rango_dia_local_utc()
+    bloque_horario = datos.get("hourly") or {}
+    horas = bloque_horario.get("time") or []
+    probabilidades = bloque_horario.get("precipitation_probability") or []
+
+    for hora, prob in zip(horas, probabilidades):
+        if prob is None:
+            continue
+        try:
+            hora_utc = (
+                datetime.fromisoformat(hora)
+                .replace(tzinfo=timezone.utc)
+                .isoformat(timespec="seconds")
+            )
+        except (TypeError, ValueError):
+            continue
+        if inicio_dia <= hora_utc < fin_dia:
+            prob_lluvia = prob if prob_lluvia is None else max(prob_lluvia, prob)
+
     return {
         "fecha_observacion": fecha_observacion,
         "fuente": "open-meteo",
@@ -92,4 +123,5 @@ def obtener_openmeteo(latitud: float, longitud: float, timeout: int = 10) -> dic
         # Precipitación actual del modelo en mm/h. Es salida de modelo,
         # no lectura de un pluviómetro local.
         "lluvia_mm_h": actual.get("precipitation"),
+        "prob_lluvia": prob_lluvia,
     }

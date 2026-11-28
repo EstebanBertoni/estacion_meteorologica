@@ -116,6 +116,15 @@ mismo pipeline MQTT→SQLite→WebSocket, pero se distinguen del dato
 instrumental. Al volver la estación, `on_message` restaura
 `fuente_sensores = "estacion"` automáticamente.
 
+`tarea_agregados()` recalcula cada 60 s los valores del día local (UTC-3)
+que alimentan las tarjetas del dashboard: `temp_min`, `temp_max`,
+`hum_min`, `hum_max` y `Max_viento` (sobre `mediciones`), `prom_temp` y
+`prom_hum` (media móvil de la última hora), y `acum_lluvia` /
+`prob_lluvia` (sobre `referencia_openmeteo`, es decir modelo, no
+pluviómetro). `acum_viento` se mantiene como alias histórico de
+`acum_lluvia`. Los agregados se reinyectan en `latest_data` cuando llega
+una medición MQTT, para que no desaparezcan del WebSocket.
+
 ### Enriquecimiento en el backend
 
 | Magnitud | Implementación | Observación |

@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import sqlite3
 
@@ -9,6 +9,27 @@ import sqlite3
 # uvicorn. Con ruta absoluta eso ya no puede pasar.
 # ------------------------------------------------------------
 DB_PATH = Path(__file__).resolve().parent.parent / "estacion_meteo.db"
+
+# Hora local de la estación (Argentina, UTC-3). El "día" de los
+# agregados es el día local, no el UTC de los timestamps guardados.
+ZONA_LOCAL = timezone(timedelta(hours=-3))
+
+
+def rango_dia_local_utc(ahora: datetime | None = None) -> tuple[str, str]:
+    """Devuelve (inicio, fin) del día local actual como ISO UTC.
+
+    Los límites se devuelven como texto con el mismo formato que
+    `fecha_hora` / `fecha_observacion`, para poder compararlos con
+    SQLite directamente (orden lexicográfico = orden cronológico).
+    """
+    referencia = ahora or datetime.now(timezone.utc)
+    local = referencia.astimezone(ZONA_LOCAL)
+    inicio_local = local.replace(hour=0, minute=0, second=0, microsecond=0)
+    fin_local = inicio_local + timedelta(days=1)
+    return (
+        inicio_local.astimezone(timezone.utc).isoformat(timespec="seconds"),
+        fin_local.astimezone(timezone.utc).isoformat(timespec="seconds"),
+    )
 
 
 def init_db():
@@ -89,7 +110,8 @@ def init_db():
             viento_kmh REAL,
             viento_dir INTEGER,
             rafagas_kmh REAL,
-            lluvia_mm_h REAL
+            lluvia_mm_h REAL,
+            prob_lluvia REAL
         )
         """
     )
@@ -107,6 +129,10 @@ def init_db():
     if "lluvia_mm_h" not in columnas_referencia:
         cursor.execute(
             "ALTER TABLE referencia_openmeteo ADD COLUMN lluvia_mm_h REAL"
+        )
+    if "prob_lluvia" not in columnas_referencia:
+        cursor.execute(
+            "ALTER TABLE referencia_openmeteo ADD COLUMN prob_lluvia REAL"
         )
 
     # Migración: la tabla observaciones_metar quedó vacía (SAFS no
@@ -219,8 +245,8 @@ def insertar_referencia(data: dict) -> bool:
             fecha_observacion, fecha_recepcion, fuente,
             latitud, longitud, temp_c, humedad,
             presion_msl_hpa, presion_superficie_hpa,
-            viento_kmh, viento_dir, rafagas_kmh, lluvia_mm_h
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            viento_kmh, viento_dir, rafagas_kmh, lluvia_mm_h, prob_lluvia
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             data.get("fecha_observacion"),
@@ -236,6 +262,7 @@ def insertar_referencia(data: dict) -> bool:
             data.get("viento_dir"),
             data.get("rafagas_kmh"),
             data.get("lluvia_mm_h"),
+            data.get("prob_lluvia"),
         ),
     )
 

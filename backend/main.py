@@ -20,6 +20,7 @@ from funciones.database import (
     obtener_ultima_referencia,
 )
 from funciones.openmeteo import obtener_openmeteo
+from funciones.consultar_datos import CLAVES_AGREGADOS, consultar_datos
 
 from funciones.alerta import activar_sonido, evaluar_alertas
 
@@ -53,6 +54,10 @@ INTERVALO_RECONEXION_MQTT = 5
 # El modelo actualiza su estado cada ~15 min; consultar más seguido
 # no aporta datos nuevos y el índice único deduplica igual.
 INTERVALO_REFERENCIA_S = 900
+
+# Frecuencia con la que se recalculan los agregados diarios y se
+# empujan al dashboard (mínimos, máximos, promedios y lluvia del modelo).
+INTERVALO_AGREGADOS_S = 60
 
 # Fallback de sensores: si no llega telemetría válida de la estación en
 # FALLBACK_SENSOR_S segundos, se usan valores de Open-Meteo marcados como
@@ -111,6 +116,9 @@ latest_data = {
     # Alias con el nombre de columna de SQLite.
     "viento_velocidad": None,
     "viento_rafaga": None,
+
+    # Agregados diarios / última hora (tarea_agregados).
+    **{clave: None for clave in CLAVES_AGREGADOS},
 }
 
 
@@ -138,6 +146,10 @@ referencia_actual = {
     "lluvia_mm_h": None,
     "fuente": None,
 }
+
+# Últimos agregados calculados. Se reinyectan en latest_data cada vez
+# que una medición MQTT reconstruye el estado (que si no los borraría).
+agregados_actuales = {}
 
 # Reloj monotonico: detecta cuándo dejaron de llegar mediciones reales.
 ultimo_mqtt_ms = None
@@ -594,6 +606,7 @@ def construir_fallback() -> dict | None:
         ts_adquisicion=None,
     )
     datos.update(campos_referencia_para_estado())
+    datos.update(agregados_actuales)
     datos["fuente_sensores"] = "open-meteo (fallback)"
     datos["alertas"] = evaluar_alertas(
         temperatura=datos["t_dht"],
@@ -802,6 +815,9 @@ def on_message(client, userdata, msg):
         # el objeto que ya están usando los clientes WebSocket.
         latest_data.clear()
         latest_data.update(nuevos_datos)
+        # Los agregados no se recalculan en cada MQTT: se conservan
+        # hasta que los actualice tarea_agregados().
+        latest_data.update(agregados_actuales)
 
         print(
             "[DATOS PROCESADOS]"
@@ -935,8 +951,13 @@ async def process_mqtt_queue():
         # ----------------------------------------------------
         # Difusión en tiempo real vía WebSocket
         # ----------------------------------------------------
+        # Se envía una COPIA de latest_data, no el payload MQTT:
+        # el payload no incluye los agregados diarios y hacerlo
+        # llegar al dashboard los borraba (tarjetas en "--") al
+        # siguiente mensaje. La copia evita además mutar el dict
+        # mientras `send_json` lo serializa.
         try:
-            await manager.broadcast(data)
+            await manager.broadcast(dict(latest_data))
         except Exception as error:
             print("[WEBSOCKET ERROR]", error)
 
@@ -989,6 +1010,7 @@ async def tarea_referencia():
                 insertado = insertar_referencia(datos)
                 actualizar_referencia(datos)
                 latest_data.update(campos_referencia_para_estado())
+                latest_data.update(agregados_actuales)
 
                 mensajes = evaluar_alertas(
                     temperatura=latest_data.get("t_dht"),
@@ -1098,6 +1120,36 @@ async def tarea_fallback_sensores():
         await asyncio.sleep(FALLBACK_INTERVALO_S)
 
 
+async def tarea_agregados():
+    """Recalcula los agregados diarios y los empuja al dashboard.
+
+    Se ejecuta en un hilo aparte porque consulta SQLite; así no frena
+    el event loop ni el procesamiento de la cola MQTT.
+    """
+    global agregados_actuales, latest_data
+
+    await asyncio.sleep(5)   # no competir con el arranque
+
+    while True:
+        try:
+            nuevos = await asyncio.to_thread(consultar_datos)
+
+            agregados_actuales.clear()
+            agregados_actuales.update(nuevos)
+            latest_data.update(agregados_actuales)
+
+            # El cambio no viene de MQTT: hay que notificar a los clientes.
+            try:
+                await manager.broadcast(dict(latest_data))
+            except Exception as error:
+                print("[WEBSOCKET ERROR]", error)
+
+        except Exception as error:
+            print(f"[AGREGADOS ERROR] {error}")
+
+        await asyncio.sleep(INTERVALO_AGREGADOS_S)
+
+
 # ============================================================
 # LIFESPAN DE FASTAPI
 # ============================================================
@@ -1142,6 +1194,10 @@ async def lifespan(app: FastAPI):
 
     asyncio.create_task(
         tarea_fallback_sensores()
+    )
+
+    asyncio.create_task(
+        tarea_agregados()
     )
 
     print(
@@ -1270,9 +1326,10 @@ async def websocket_endpoint(
 
     try:
 
-        # Enviar inmediatamente la última medición.
+        # Enviar inmediatamente el estado completo (copia, para no
+        # serializar un dict que otro hilo puede estar mutando).
         await websocket.send_json(
-            latest_data
+            dict(latest_data)
         )
 
         while True:
