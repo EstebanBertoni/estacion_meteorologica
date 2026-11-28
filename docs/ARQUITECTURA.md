@@ -286,11 +286,19 @@ Ver la [guía de validación](https://github.com/EstebanBertoni/estacion_meteoro
 | Estado inicial | `None`, no ceros: el dashboard muestra `--`. | Resuelto. |
 | Suscripción MQTT | Se (re)suscribe en `on_connect`. | Resuelto. |
 | Persistencia | Se guarda cada mensaje con `ts_adquisicion`. | Resuelto. |
-| Doble backend | Dos instancias escribiendo generan filas duplicadas. | Resuelto operativamente: una sola instancia en 8000. |
+| Doble backend | Dos instancias escribiendo generan filas duplicadas (887 grupos / 2716 filas el 28/11). | Resuelto: una sola instancia en 8000; 502 duplicados exactos eliminados y 2214 lecturas válidas restauradas desde backup. |
 | Agregados que desaparecen | El WebSocket difundía el payload MQTT crudo. | Resuelto: se difunde `dict(latest_data)`. |
 | Sin telemetría | Fallback de Open-Meteo marcado como tal. | Probado con la placa apagada (28/11/2026): entrada y retorno automáticos. |
 | SQLite en asyncio | Llamadas síncronas en la inserción; tareas usan `to_thread`. | Aceptable para el volumen actual. |
 | Seguridad | MQTT autenticado; CORS `*` y HTTP/WS sin autenticación. | Apto solo para red local. |
+
+**Lección sobre la limpieza de duplicados:** `fecha_hora` tiene resolución de
+1 segundo y el buffer del ESP32 puede reenviar varias lecturas distintas en el
+mismo segundo. Agrupar solo por esa columna borró 2716 filas, de las cuales
+502 eran duplicados exactos y 2214 lecturas válidas; estas últimas se
+recuperaron desde el backup de las 01:13 del 28/11/2026. Cualquier limpieza
+futura debe agrupar por `fecha_hora` **y todos los sensores**, conservando el
+menor `id`. El histórico actual no tiene duplicados exactos bajo ese criterio.
 
 ## 12. Evolución por ramas
 
