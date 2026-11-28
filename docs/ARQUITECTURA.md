@@ -140,9 +140,17 @@ Si no llega ninguna medición válida durante 60 s, `tarea_fallback_sensores`:
 3. Lo marca `fuente_sensores = "open-meteo (fallback)"`.
 4. Lo inyecta en la misma cola MQTT→SQLite→WebSocket.
 
+El **chequeo** del silencio MQTT corre cada 10 s (`FALLBACK_CHEQUEO_S`), de
+modo que la detección no depende de la fase de un ciclo largo. La
+**publicación** mantiene una cadencia de 60 s (`FALLBACK_INTERVALO_S`) para no
+generar una fila nueva por chequeo. Si todavía no hay referencia del modelo,
+se reintenta en el siguiente ciclo de publicación.
+
 Al volver una telemetría real, `on_message` pone
-`fuente_sensores = "estacion"` y reinicia el temporizador. Las filas de
-fallback quedan en el histórico perfectamente distinguidas.
+`fuente_sensores = "estacion"`, reinicia `ultimo_mqtt_ms` y limpia
+`ultimo_fallback_ms` para que el próximo silencio active el fallback sin
+esperar la cadencia anterior. Las filas de fallback quedan en el histórico
+perfectamente distinguidas.
 
 ## 5. Agregados diarios
 
@@ -251,7 +259,7 @@ erDiagram
 | `process_mqtt_queue()` | asyncio task | `await queue.get()` | Inserta en SQLite y hace broadcast de `dict(latest_data)`. |
 | `tarea_referencia()` | asyncio task | 5 s iniciales, luego 900 s | Consulta Open-Meteo, inserta referencia, actualiza viento/lluvia y alertas. |
 | `tarea_agregados()` | asyncio task | 5 s iniciales, luego 60 s | Recalcula agregados con `asyncio.to_thread` y hace broadcast. |
-| `tarea_fallback_sensores()` | asyncio task | 60 s | Publica datos del modelo si no hay MQTT válido. |
+| `tarea_fallback_sensores()` | asyncio task | Chequeo cada 10 s, publicación cada 60 s | Publica datos del modelo si no hay MQTT válido. |
 | WebSocket del navegador | JS en el cliente | Reconexión con `setTimeout` de 3 s | Indicador "Desconectado / Conectando / En vivo / Reconectando". |
 
 Las consultas a SQLite se hacen con `asyncio.to_thread` en las tareas
@@ -280,7 +288,7 @@ Ver la [guía de validación](https://github.com/EstebanBertoni/estacion_meteoro
 | Persistencia | Se guarda cada mensaje con `ts_adquisicion`. | Resuelto. |
 | Doble backend | Dos instancias escribiendo generan filas duplicadas. | Resuelto operativamente: una sola instancia en 8000. |
 | Agregados que desaparecen | El WebSocket difundía el payload MQTT crudo. | Resuelto: se difunde `dict(latest_data)`. |
-| Sin telemetría | Fallback de Open-Meteo marcado como tal. | Implementado; pendiente de prueba con la placa apagada. |
+| Sin telemetría | Fallback de Open-Meteo marcado como tal. | Probado con la placa apagada (28/11/2026): entrada y retorno automáticos. |
 | SQLite en asyncio | Llamadas síncronas en la inserción; tareas usan `to_thread`. | Aceptable para el volumen actual. |
 | Seguridad | MQTT autenticado; CORS `*` y HTTP/WS sin autenticación. | Apto solo para red local. |
 

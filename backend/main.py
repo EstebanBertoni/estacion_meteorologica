@@ -63,6 +63,10 @@ INTERVALO_AGREGADOS_S = 60
 # FALLBACK_SENSOR_S segundos, se usan valores de Open-Meteo marcados como
 # "open-meteo (fallback)". Al volver la estación se restaura lo local.
 FALLBACK_SENSOR_S = 60.0
+# El silencio MQTT se CHEQUEA seguido para que la detección no dependa de la
+# fase de un ciclo largo. La publicación al pipeline mantiene su cadencia de
+# 60 s para no llenar la base de filas duplicadas del modelo.
+FALLBACK_CHEQUEO_S = 10.0
 FALLBACK_INTERVALO_S = 60.0
 FALLBACK_REFERENCIA_MAX_EDAD_S = 300.0
 
@@ -155,6 +159,8 @@ agregados_actuales = {}
 ultimo_mqtt_ms = None
 ultima_referencia_ms = None
 usando_fallback = False
+# Momento del último intento de publicar fallback (no de cada chequeo).
+ultimo_fallback_ms = None
 
 mqtt_queue = asyncio.Queue()
 
@@ -701,7 +707,7 @@ def on_message(client, userdata, msg):
     una nueva medición desde el ESP32.
     """
 
-    global latest_data, ultimo_mqtt_ms, usando_fallback
+    global latest_data, ultimo_mqtt_ms, usando_fallback, ultimo_fallback_ms
 
     try:
 
@@ -777,6 +783,9 @@ def on_message(client, userdata, msg):
         # restaura la procedencia local en cuanto llega un dato válido.
         if usando_fallback:
             usando_fallback = False
+            # El próximo silencio debe publicar enseguida, sin esperar a
+            # que se cumpla la cadencia del último fallback.
+            ultimo_fallback_ms = None
             print("[FALLBACK] Estación activa nuevamente; se restauran datos locales")
         nuevos_datos["fuente_sensores"] = "estacion"
 
@@ -1055,7 +1064,7 @@ async def tarea_fallback_sensores():
     y entran al mismo pipeline que MQTT (SQLite + WebSocket). En cuanto
     llega una medición real, `on_message` restaura la procedencia local.
     """
-    global usando_fallback, latest_data
+    global usando_fallback, latest_data, ultimo_fallback_ms
 
     # Dar tiempo a que llegue la primera medición real antes de activar.
     await asyncio.sleep(FALLBACK_SENSOR_S + 5)
@@ -1068,8 +1077,20 @@ async def tarea_fallback_sensores():
         )
 
         if not sin_datos:
-            await asyncio.sleep(FALLBACK_INTERVALO_S)
+            await asyncio.sleep(FALLBACK_CHEQUEO_S)
             continue
+
+        # Chequear seguido pero publicar con cadencia de 60 s: así la
+        # detección tarda como máximo FALLBACK_CHEQUEO_S además del umbral,
+        # sin generar una fila nueva en cada vuelta del chequeo.
+        if (
+            ultimo_fallback_ms is not None
+            and ahora - ultimo_fallback_ms < FALLBACK_INTERVALO_S
+        ):
+            await asyncio.sleep(FALLBACK_CHEQUEO_S)
+            continue
+
+        ultimo_fallback_ms = ahora
 
         # Si la referencia está vieja (o nunca llegó), refrescarla.
         referencia_vieja = (
@@ -1093,7 +1114,9 @@ async def tarea_fallback_sensores():
 
         datos_fallback = construir_fallback()
         if datos_fallback is None:
-            await asyncio.sleep(FALLBACK_INTERVALO_S)
+            # Sin referencia del modelo no hay nada válido que publicar;
+            # se reintenta en la próxima cadencia de 60 s.
+            await asyncio.sleep(FALLBACK_CHEQUEO_S)
             continue
 
         if not usando_fallback:
@@ -1117,7 +1140,7 @@ async def tarea_fallback_sensores():
         # Entra al pipeline habitual: se persiste y se difunde por WS.
         mqtt_queue.put_nowait(datos_fallback)
 
-        await asyncio.sleep(FALLBACK_INTERVALO_S)
+        await asyncio.sleep(FALLBACK_CHEQUEO_S)
 
 
 async def tarea_agregados():

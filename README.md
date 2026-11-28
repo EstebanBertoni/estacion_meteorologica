@@ -122,7 +122,8 @@ Las constantes están al inicio de `backend/main.py`:
 | `INTERVALO_REFERENCIA_S` | `900` | Consulta al modelo. |
 | `INTERVALO_AGREGADOS_S` | `60` | Recálculo de agregados diarios. |
 | `FALLBACK_SENSOR_S` | `60.0` | Tiempo sin telemetría válida antes de usar el modelo. |
-| `FALLBACK_INTERVALO_S` | `60.0` | Cadencia de publicación del fallback. |
+| `FALLBACK_CHEQUEO_S` | `10.0` | Frecuencia con que se chequea el silencio MQTT. |
+| `FALLBACK_INTERVALO_S` | `60.0` | Cadencia de publicación del fallback en la base y el WebSocket. |
 | `INTERVALO_RECONEXION_MQTT` | `5` | Reintento de conexión al broker. |
 
 ## Contrato MQTT
@@ -151,8 +152,10 @@ falsa.
   separada de `mediciones`.
 - Si no llega telemetría válida durante 60 s, `tarea_fallback_sensores`
   reemplaza temperatura, humedad y presión por valores del modelo y marca
-  `fuente_sensores = "open-meteo (fallback)"`. Al volver la estación,
-  `on_message` restaura `"estacion"` automáticamente.
+  `fuente_sensores = "open-meteo (fallback)"`. El silencio se chequea cada
+  10 s (la detección puede demorar hasta ese lapso además del umbral), pero
+  las filas se publican como máximo cada 60 s. Al volver la estación,
+  `on_message` restaura `"estacion"` y reinicia el temporizador.
 - Los registros de fallback entran al mismo pipeline y se persisten en
   `mediciones`, pero son identificables por su procedencia.
 
