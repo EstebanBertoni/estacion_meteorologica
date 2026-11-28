@@ -5,9 +5,9 @@ La evaluación es pura (`evaluar_alertas` devuelve mensajes y no tiene
 efectos secundarios), así que el backend puede publicar el resultado por
 WebSocket sin reproducir sonido en el hilo de MQTT.
 
-Fuentes disponibles hoy: temperatura (DHT22). Los umbrales de viento y
-lluvia ya están definidos, pero esas magnitudes todavía no llegan desde
-el ESP32: se pasan como None hasta que exista una fuente confiable.
+Fuentes: temperatura del DHT22 local (o del fallback de Open-Meteo), y
+viento/lluvia del modelo Open-Meteo, siempre marcados con su procedencia.
+Los valores None se ignoran: nunca se interpretan como 0.
 """
 
 import sys

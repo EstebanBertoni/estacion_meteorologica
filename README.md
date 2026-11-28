@@ -1,220 +1,294 @@
 # Estación Meteorológica IoT
 
-Backend, dashboard en tiempo real y registro histórico de una estación
-meteorológica de bajo costo. Los sensores envían telemetría por MQTT a un
-servicio FastAPI, que la difunde a los navegadores por WebSocket y la
-persiste en SQLite.
+Backend FastAPI, dashboard en tiempo real, alertas y registro histórico de una
+estación meteorológica de bajo costo. Los sensores envían telemetría por MQTT;
+el backend la valida, la enriquece con el modelo de Open-Meteo, la persiste en
+SQLite y la difunde a los navegadores por WebSocket.
+
+## Estado actual del proyecto
+
+- `origin/main` ya incluye todo el trabajo de `Pagina_Web` (PR #1, merge
+  `a0c17ff`). Lo que se describe en este README es ese código unificado.
+- `Pagina_Web` sigue siendo la rama de desarrollo y contiene los últimos
+  cambios (al escribir esto, `4b00a20`: agregados diarios y corrección del
+  WebSocket).
+- La rama histórica V1.0 se renombró a `legacy/Estacion_Meteorologica_V1.0`
+  en el remoto (`c72881b`).
 
 ## Repositorios relacionados
 
 | Repositorio | Contenido |
 |---|---|
-| [`estacion_meteorologica`](https://github.com/EstebanBertoni/estacion_meteorologica) | Código del backend, dashboard y firmware histórico (este repositorio). |
+| [`estacion_meteorologica`](https://github.com/EstebanBertoni/estacion_meteorologica) | Backend, dashboard, firmware e inventario (este repositorio). |
 | [`estacion_meteorologica_datos`](https://github.com/EstebanBertoni/estacion_meteorologica_datos) | Dataset congelado `datos.csv` y su documentación de calidad. |
 
 ## Arquitectura general
 
 ```mermaid
 flowchart LR
-    SENSORES["BMP180 + DHT22"] --> NANO["Arduino Nano<br/>adquisición y validación"]
-    NANO -->|UART 9600 · JSON por línea| ESP32["ESP32<br/>RSSI · NTP · buffer LittleFS"]
-    ESP32 -->|MQTT 1883| BROKER[("Mosquitto<br/>estacion/telemetria")]
-    BROKER --> API["FastAPI<br/>main.py"]
+    BMP["BMP180 I2C"] --> NANO["Arduino Nano<br/>validación de rangos"]
+    DHT["DHT22 GPIO 2"] --> NANO
+    NANO -->|"UART 9600 · JSON por línea"| ESP["ESP32<br/>RSSI · NTP · buffer LittleFS"]
+    ESP -->|"MQTT 1883<br/>estacion/telemetria"| BROKER[("Mosquitto")]
+    BROKER --> API["FastAPI<br/>backend/main.py"]
+    OM["Open-Meteo<br/>salida de modelo"] -->|"viento, lluvia, fallback"| API
+    API --> QUEUE["asyncio.Queue"]
+    QUEUE --> DB[("SQLite<br/>estacion_meteo.db")]
     API --> WS["WebSocket /ws/clima"]
-    API --> REST["GET /api/v1/historial"]
-    WS --> UI["Dashboard<br/>index.html + style.css"]
+    API --> REST["REST /api/v1/*"]
+    WS --> UI["Dashboard<br/>frontend/"]
     REST --> UI
-    API --> DB[("SQLite<br/>estacion_meteo.db")]
+    API --> AL["Alertas<br/>log + sonido + campo 'alertas'"]
 ```
 
-El hardware (Nano + ESP32) y el pipeline completo están en la rama
-`Pagina_Web`. La rama `main`, documentada aquí, contiene el backend y el
-dashboard. Consultá [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md) para el
-detalle de componentes, contratos y flujos.
+La procedencia es explícita en todo el pipeline: la temperatura, humedad y
+presión locales se marcan `fuente_sensores = "estacion"`; el viento y la lluvia
+vienen del modelo y viajan con `fuente_viento` / `fuente_lluvia =
+"open-meteo (modelo)"`. Ver [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md).
 
 ## Requisitos
 
 - Python 3.12 (probado en Windows).
-- Broker MQTT Mosquitto accesible en `127.0.0.1:1883`.
-- Dependencias Python: `fastapi`, `uvicorn`, `paho-mqtt`.
-
-> La rama `Pagina_Web` incluye `backend/requirements.txt` con versiones
-> fijadas. En `main` no hay archivo de requisitos, así que se instalan
-> directamente.
+- Broker Mosquitto con autenticación (`allow_anonymous false`).
+- Dependencias Python: las de [`backend/requirements.txt`](backend/requirements.txt).
+- Firmware: Arduino IDE con las librerías detalladas en
+  [`firmware/README.md`](firmware/README.md).
 
 ## Instalación y ejecución
 
 ```powershell
 git clone https://github.com/EstebanBertoni/estacion_meteorologica.git
-cd estacion_meteorologica
+cd estacion_meteorologica\backend
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install fastapi uvicorn paho-mqtt
+pip install -r requirements.txt
 ```
 
-Iniciar Mosquitto (en Windows, por ejemplo, `net start mosquitto`) y luego
-levantar la aplicación **desde la raíz del repositorio**:
+### Credenciales (no versionadas)
+
+- Backend: crear `backend/credentials.py` con:
+
+  ```python
+  MQTT_USER = "usuario_mqtt"
+  MQTT_PASS = "password_mqtt"
+  ```
+
+  Si el archivo no existe, el backend conecta sin credenciales y el broker lo
+  rechaza; el log lo indica con `AUTENTICACIÓN RECHAZADA`.
+
+- Firmware: copiar `firmware/credentials.h.example` a `credentials.h` y
+  completar SSID/password Wi-Fi y la IP del broker.
+
+Ambos archivos están en `.gitignore`.
+
+### Levantar el backend
+
+Ejecutar **desde `backend/`**, porque los archivos estáticos se montan como
+`../frontend`:
 
 ```powershell
-uvicorn main:app --reload
+python -m uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 
-Abrir <http://127.0.0.1:8000>. El dashboard queda en estado
-`Conectando...`/`Reconectando...` hasta que llegue el primer mensaje MQTT.
+Abrir <http://127.0.0.1:8000>. El dashboard muestra `--` hasta que llega la
+primera medición (el estado inicial es `None`, no `0`).
 
-Para probar sin hardware:
+En Windows el servicio `EstacionBackend` (NSSM) corre en el puerto 8000; para
+recargarlo hace falta un PowerShell como Administrador:
 
 ```powershell
-mosquitto_pub -h 127.0.0.1 -t "estacion/telemetria" `
-  -m '{"t_dht":21.5,"humedad":55.2,"t_bmp":19.8,"presion":1013.2,"rssi":-45}'
+Restart-Service EstacionBackend
 ```
 
-### Configuración
+### Probar sin hardware
 
-Las constantes están al inicio de `main.py`:
+```powershell
+mosquitto_pub -h 127.0.0.1 -u USUARIO -P PASSWORD `
+  -t "estacion/telemetria" `
+  -m '{"t_dht":25.5,"humedad":60,"t_bmp":25.0,"presion":1010,"rssi":-55,"ts_epoch":1795836790}'
+```
+
+## Configuración
+
+Las constantes están al inicio de `backend/main.py`:
 
 | Constante | Valor | Uso |
 |---|---|---|
 | `BROKER_IP` | `127.0.0.1` | Host del broker MQTT. |
-| `PORT` | `1883` | Puerto MQTT. |
-| `TOPIC` | `estacion/telemetria` | Tópico suscripto. |
+| `MQTT_PORT` | `1883` | Puerto MQTT. |
+| `MQTT_TOPIC` | `estacion/telemetria` | Tópico suscripto. |
+| `ALTURA_M` | `90.0` | Altura de referencia para derivadas. |
+| `LATITUD_ESTACION` / `LONGITUD_ESTACION` | `-31.2262` / `-61.4903` | Punto de interpolación de Open-Meteo (Rafaela, Santa Fe). |
+| `INTERVALO_REFERENCIA_S` | `900` | Consulta al modelo. |
+| `INTERVALO_AGREGADOS_S` | `60` | Recálculo de agregados diarios. |
+| `FALLBACK_SENSOR_S` | `60.0` | Tiempo sin telemetría válida antes de usar el modelo. |
+| `FALLBACK_INTERVALO_S` | `60.0` | Cadencia de publicación del fallback. |
+| `INTERVALO_RECONEXION_MQTT` | `5` | Reintento de conexión al broker. |
 
-El guardado en SQLite ocurre cada **300 s** (la primera escritura a los
-10 s de iniciar el servicio). `index.html` y `estacion_meteo.db` se
-resuelven con rutas relativas al directorio de trabajo, por eso es
-importante ejecutar `uvicorn` desde la raíz.
+## Contrato MQTT
 
-## Contrato de datos
+| Campo | Alias aceptado | Rango válido | Unidad |
+|---|---|---|---|
+| `t_dht` | `temp_dht` | −50 … 60 | °C |
+| `humedad` | `hum` | 0 … 100 | % HR |
+| `t_bmp` | `temp_bmp` | −50 … 60 | °C |
+| `presion` | `press` | 300 … 1100 | hPa |
+| `rssi` | — | entero | dBm |
+| `ts_epoch` | — | ≥ 1.700.000.000 | s UTC |
 
-### Mensaje MQTT publicado por la pasarela
+El firmware además publica `ip_esp32`, `red_ssid`, `bmp_ok` y `dht_ok`;
+esos metadatos no se persisten. `ts_epoch` se convierte a `ts_adquisicion`
+solo si es razonablemente reciente; si no, se guarda `NULL`, nunca una hora
+falsa.
 
-```json
-{
-  "t_dht": 21.5,
-  "humedad": 55.2,
-  "t_bmp": 19.8,
-  "presion": 1013.2,
-  "rssi": -45
-}
-```
+## Procedencia, modelo y fallback
 
-`main.py` acepta aliases para tolerar versiones distintas del firmware:
-`temp_dht` → `t_dht`, `hum` → `humedad`, `temp_bmp` → `t_bmp`,
-`press` → `presion`. `rssi` no tiene alias. Los valores no numéricos se
-descartan con un mensaje de error en el log.
+- **Open-Meteo es modelo, no medición instrumental.** Aporta viento
+  (`vel_viento`, `raf_viento`, `viento_direccion`), lluvia (`lluvia_mm_h`),
+  probabilidad horaria (`prob_lluvia`) y los valores de fallback.
+- Cada valor viaja con `fuente_viento` / `fuente_lluvia =
+  "open-meteo (modelo)"`, y se guarda en `referencia_openmeteo`, tabla
+  separada de `mediciones`.
+- Si no llega telemetría válida durante 60 s, `tarea_fallback_sensores`
+  reemplaza temperatura, humedad y presión por valores del modelo y marca
+  `fuente_sensores = "open-meteo (fallback)"`. Al volver la estación,
+  `on_message` restaura `"estacion"` automáticamente.
+- Los registros de fallback entran al mismo pipeline y se persisten en
+  `mediciones`, pero son identificables por su procedencia.
 
-### Estado en memoria
+## Alertas
 
-Cada mensaje actualiza `latest_data` y calcula tres magnitudes derivadas:
+Umbrales definidos en `backend/funciones/alerta.py`:
 
-| Campo | Origen / fórmula |
+| Magnitud | Umbral |
 |---|---|
-| `altitud` | `44330 * (1 - (presion / 1032) ** 0.1903)` |
-| `punto_rocio` | Aproximación de Magnus con `a=17.27`, `b=237.7` |
-| `sensacion_termica` | Heurística con humedad para `t_dht >= 20 °C`; si no, `t_dht` |
+| Temperatura DHT22 | 38 °C |
+| Viento (modelo) | 60 km/h |
+| Lluvia (modelo) | 50 mm |
 
-La altitud es una **estimación barométrica** con presión de referencia
-fija (1032 hPa), no una medición: refleja ruido de presión y no debe
-interpretarse como altura real. El dataset histórico muestra oscilaciones
-de 32–44 m en el mismo lugar.
+`evaluar_alertas()` es pura y devuelve mensajes; `activar_sonido()` reproduce
+la alarma en un hilo aparte con **cooldown de 60 s** (archivo MP3 incluido, con
+beep del sistema como respaldo). Los mensajes activos se exponen en el campo
+`alertas` del WebSocket y se registran en el log.
+
+## Agregados diarios
+
+`tarea_agregados()` recalcula cada 60 s, sobre el día local (UTC-3):
+
+| Campo | Origen |
+|---|---|
+| `temp_min`, `temp_max`, `hum_min`, `hum_max`, `Max_viento` | `mediciones` del día. |
+| `prom_temp`, `prom_hum` | Media móvil de la última hora. |
+| `acum_lluvia` (alias `acum_viento`) | Suma horaria del modelo en `referencia_openmeteo`. |
+| `prob_lluvia` | Máxima probabilidad horaria del modelo para hoy. |
+
+Se reinyectan en `latest_data` cada vez que llega MQTT o una referencia nueva,
+para que no desaparezcan del dashboard.
+
+## Estado en memoria y magnitudes derivadas
+
+`latest_data` contiene telemetría, derivadas (`altitud`, `punto_rocio`,
+`sensacion_termica`, `humedad_absoluta`, `vpd`, `bulbo_humedo`, `base_nubes`,
+`presion_mar`, `densidad_aire`), viento/lluvia del modelo, agregados,
+`alertas` y los campos de procedencia.
+
+La altura barométrica es una **estimación** con presión de referencia fija,
+no una medición: no debe interpretarse como altura real.
 
 ## API HTTP y WebSocket
 
 | Endpoint | Descripción |
 |---|---|
-| `GET /` | Devuelve `index.html`. |
-| `GET /api/v1/historial?limite=100` | Últimas N mediciones de SQLite, en orden descendente por `id`. |
-| `WS /ws/clima` | Envía el estado actual al conectarse y luego cada mensaje MQTT. |
+| `GET /` | Dashboard (`frontend/index.html`). |
+| `GET /health` | Estado para el monitor del servicio: MQTT, última medición, alertas, fallback. |
+| `GET /api/v1/actual` | Estado completo `latest_data`. |
+| `GET /api/v1/historial?limite=100` | Últimas N mediciones (1 … 1000), más recientes primero. |
+| `GET /api/v1/referencia` | Última observación de Open-Meteo o `{"estado":"SIN_DATOS"}`. |
+| `WS /ws/clima` | Envía el estado al conectarse y una copia actualizada en cada cambio. |
 
-Ejemplo de respuesta del histórico:
+Ejemplo de `/health`:
 
 ```json
-[
-  {
-    "id": 7,
-    "fecha_hora": "2026-09-13 15:26:32",
-    "temp_dht": 20.8,
-    "humedad": 54.8,
-    "temp_bmp": 18.6,
-    "presion": 1020.64,
-    "altitud": 93.3,
-    "punto_rocio": 11.4,
-    "sensacion_termica": 15.2,
-    "rssi": -33
-  }
-]
+{
+  "estado": "ok",
+  "mqtt": "conectado",
+  "ultima_medicion": "2026-11-28T04:19:06+00:00",
+  "alertas_activas": 0,
+  "fuente_sensores": "estacion",
+  "usando_fallback": false
+}
 ```
-
-El frontend elige `ws://` o `wss://` según el protocolo de la página,
-reenvía el estado a ocho tarjetas y reconecta automáticamente cada 3 s si
-se cierra la conexión.
 
 ## Persistencia
 
-`database.py` crea la tabla `mediciones` en `estacion_meteo.db`:
+`init_db()` crea/migra dos tablas:
 
-| Columna | Tipo | Descripción |
-|---|---|---|
-| `id` | INTEGER PK | Autoincremental. |
-| `fecha_hora` | TEXT | `datetime.now()` del servidor, formato `YYYY-MM-DD HH:MM:SS`. |
-| `temp_dht` | REAL | Temperatura DHT22. |
-| `humedad` | REAL | Humedad relativa. |
-| `temp_bmp` | REAL | Temperatura del sensor barométrico. |
-| `presion` | REAL | Presión en hPa. |
-| `altitud` | REAL | Estimación derivada. |
-| `punto_rocio` | REAL | Magnitud derivada. |
-| `sensacion_termica` | REAL | Magnitud derivada. |
-| `rssi` | INTEGER | Intensidad de señal Wi-Fi. |
+- **`mediciones`**: una fila por mensaje MQTT válido (≈1 cada 3 s). Guarda
+  `ts_adquisicion`, `fecha_hora` (recepción en el servidor), sensores, RSSI,
+  derivadas, viento/lluvia del modelo y `fuente_sensores`. Los valores
+  ausentes se guardan como `NULL`. Tiene índice por `fecha_hora`.
+- **`referencia_openmeteo`**: histórico canónico del modelo, con índice
+  único por `fecha_observacion` (reconsultar no duplica filas). Incluye
+  `lluvia_mm_h` y `prob_lluvia`.
 
-No se insertan registros cuando `t_dht` es `0` (valor centinela del estado
-inicial). El timestamp es del servidor, no del dispositivo: esta rama no
-guarda `ts_adquisicion`.
+Las migraciones `ALTER TABLE` son automáticas para bases preexistentes.
+
+## Firmware
+
+Los sketches del Nano y el ESP32, el protocolo serial, el cableado y el
+buffer LittleFS están documentados en [`firmware/README.md`](firmware/README.md).
 
 ## Estructura
 
 ```text
 estacion_meteorologica/
-├── main.py              # FastAPI: MQTT, WebSocket, REST, tareas periódicas
-├── database.py          # Esquema SQLite e inserción/consulta
-├── index.html           # Dashboard en tiempo real
-├── style.css            # Estilos del dashboard
-├── sucriber.py          # Suscriptor MQTT de prueba (ver observaciones)
-├── datos.csv            # Copia del dataset histórico
-├── estacion_meteo.db    # Base SQLite local
-└── docs/
-    └── ARQUITECTURA.md  # Detalle de flujos y decisiones de diseño
+├── backend/
+│   ├── main.py                 # FastAPI: MQTT, WS, REST y tareas
+│   ├── requirements.txt
+│   ├── credentials.py          # gitignoreado
+│   └── funciones/
+│       ├── database.py         # Esquema, inserción y consultas
+│       ├── openmeteo.py        # Cliente del modelo + prob_lluvia
+│       ├── consultar_datos.py  # Agregados diarios
+│       ├── alerta.py           # Umbrales, cooldown y sonido
+│       └── sucriber.py         # Suscriptor de depuración
+├── docs/
+│   └── ARQUITECTURA.md
+├── firmware/
+│   ├── Test_Nano_sensores.ino
+│   ├── Test_MQTT_buffer.ino
+│   ├── credentials.h.example
+│   └── README.md
+├── frontend/
+│   ├── index.html
+│   ├── app.js
+│   └── style.css
+└── INVENTARIO.md               # Inventario de archivos del proyecto
 ```
-
-## Observaciones y limitaciones
-
-- `latest_data` se inicializa en `0.0`; antes del primer mensaje, un cliente
-  WebSocket ve ceros en lugar de "sin dato".
-- `sucriber.py` es una herramienta de depuración independiente, **no la usa
-  el backend**, y su tópico (`estacion/telemtria`) tiene un typo respecto de
-  `estacion/telemetria`.
-- El dashboard rotula la tarjeta como `Temp. BMP280`, pero el firmware de la
-  rama `Pagina_Web` usa un **BMP180** (confirmado en el driver y en el README
-  de firmware).
-- CORS permite todos los orígenes y no hay autenticación en MQTT, HTTP ni
-  WebSocket: apto para entorno local, no para exposición pública.
-- Las llamadas a SQLite son síncronas dentro del loop de asyncio.
-- La rama `Pagina_Web` agrega credenciales MQTT, timestamp de adquisición,
-  datos de viento, referencia de Open-Meteo, más métricas derivadas y
-  firmware de ambos nodos. Es código de la misma línea de desarrollo, pero
-  no está fusionado en `main`.
 
 ## Historial de ramas
 
 | Rama | Contenido |
 |---|---|
-| `main` | Estado actual: backend FastAPI + dashboard (commit `Estacion Meteorologica V1.1`). |
-| `Estacion_Meteorologica_V1.0` | Versión inicial V1.0. |
-| `Pagina_Web` | Firmware Nano/ESP32, backend modular, dashboard extendido y pruebas. |
+| `main` (`origin/main`) | Código unificado tras el merge de `Pagina_Web` (`a0c17ff`). |
+| `Pagina_Web` | Rama de desarrollo; incluye agregados diarios y el fix del WebSocket (`4b00a20`). |
+| `legacy/Estacion_Meteorologica_V1.0` | Rama histórica renombrada en el remoto (`c72881b`). |
+| `Estacion_Meteorologica_V1.0` | Versión inicial V1.0 (rama local histórica). |
 
 ## Datos históricos
 
-La copia `datos.csv` proviene del buffer local del ESP32 anterior a la
-arquitectura MQTT: 4643 muestras de ~88 min con timestamps inválidos,
-tramos congelados y la última fila truncada. Antes de usarla, leer el
-[README del repo de datos](https://github.com/EstebanBertoni/estacion_meteorologica_datos)
-y [su guía de validación](https://github.com/EstebanBertoni/estacion_meteorologica_datos/blob/main/docs/VALIDACION.md).
+El dataset `datos.csv` vive en el
+[repo de datos](https://github.com/EstebanBertoni/estacion_meteorologica_datos),
+no en este. Proviene del buffer local del ESP32 anterior a MQTT: tiene
+timestamps inválidos, tramos congelados y una fila truncada. Antes de usarlo,
+leer la [guía de validación](https://github.com/EstebanBertoni/estacion_meteorologica_datos/blob/main/docs/VALIDACION.md).
+
+## Limitaciones
+
+- CORS abierto (`*`) y sin autenticación en HTTP ni WebSocket: apto para red
+  local, no para exposición pública. MQTT sí requiere credenciales.
+- Las llamadas a SQLite son síncronas dentro del loop de asyncio.
+- El dashboard depende de que el backend se ejecute desde `backend/` por las
+  rutas `../frontend`.
+- La procedencia del viento y la lluvia es modelo; nunca debe presentarse como
+  medición instrumental de la estación.
